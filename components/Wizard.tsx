@@ -138,6 +138,25 @@ export function Wizard() {
   /* ---------- geração completa ---------- */
   const generate = useCallback(async () => {
     const errors: string[] = [];
+    const t0 = Date.now();
+    const events: { step: string; ok: boolean; ms: number; error?: string }[] = [];
+    const ev = (step: string, ok: boolean, since: number, error?: string) =>
+      events.push({ step, ok, ms: Date.now() - since, error });
+    let orderId: string | null = null;
+    try {
+      const r = await fetch("/api/orders/start", { method: "POST", headers: headers(), body: JSON.stringify({ answers: a, photoCount: photos.length }) });
+      if (r.ok) orderId = (await r.json()).id ?? null;
+    } catch {}
+    const finish = async (status: string, story: Story | null) => {
+      if (!orderId) return;
+      try {
+        await fetch("/api/orders/finish", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ id: orderId, status, story, errors, events, totalMs: Date.now() - t0 }),
+        });
+      } catch {}
+    };
     const post = async (url: string, body: unknown) => {
       const r = await fetch(url, { method: "POST", headers: headers(), body: JSON.stringify(body) });
       if (!r.ok) {
@@ -148,8 +167,10 @@ export function Wizard() {
     };
 
     try {
+      const tStory = Date.now();
       const sr = await post("/api/luna/story", { answers: a, photoCount: photos.length });
       const { story } = (await sr.json()) as { story: Story };
+      ev("story", true, tStory);
       setProgress((p) => ({ ...p, story: true }));
 
       const images: (string | null)[] = new Array(photos.length).fill(null);
@@ -159,6 +180,7 @@ export function Wizard() {
         const worker = async () => {
           while (cursor < photos.length) {
             const i = cursor++;
+            const tImg = Date.now();
             try {
               const r = await post("/api/generate/image", {
                 photo: photos[i].dataUrl,
@@ -168,8 +190,10 @@ export function Wizard() {
                 consent: a.consent,
               });
               images[i] = (await r.json()).image as string;
+              ev(`image_${i + 1}`, true, tImg);
             } catch (e) {
               errors.push(`Imagem ${i + 1}: ${(e as Error).message}`);
+              ev(`image_${i + 1}`, false, tImg, (e as Error).message);
             }
             setProgress((p) => ({ ...p, images: p.images + 1 }));
           }
@@ -178,13 +202,16 @@ export function Wizard() {
       };
 
       const audioJob = async (url: string, body: unknown, key: "narration" | "music", label: string) => {
+        const tAudio = Date.now();
         try {
           const r = await post(url, body);
           const out = URL.createObjectURL(await r.blob());
+          ev(key, true, tAudio);
           setProgress((p) => ({ ...p, [key]: true }));
           return out;
         } catch (e) {
           errors.push(`${label}: ${(e as Error).message}`);
+          ev(key, false, tAudio, (e as Error).message);
           setProgress((p) => ({ ...p, [key]: true }));
           return null;
         }
@@ -197,8 +224,12 @@ export function Wizard() {
       ]);
 
       setResult({ story, images, narrationUrl, musicUrl, errors });
+      await finish(errors.length ? "partial" : "done", story);
       go("result");
     } catch (e) {
+      ev("story", false, t0, (e as Error).message);
+      errors.push((e as Error).message);
+      await finish("failed", null);
       setFatal((e as Error).message);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
