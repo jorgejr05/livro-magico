@@ -1,6 +1,7 @@
 // Helpers só de servidor. As chaves vêm de variáveis de ambiente, nunca do cliente.
 export function checkAccess(req: Request): Response | null {
-  const code = process.env.ACCESS_CODE;
+  // O código só é exigido se ACCESS_ENFORCE=1 (desligado por padrão: sem fricção).
+  const code = process.env.ACCESS_ENFORCE === "1" ? process.env.ACCESS_CODE : "";
   if (!code) return null;
   if (req.headers.get("x-access-code") === code) return null;
   return Response.json({ error: "Código de acesso inválido." }, { status: 401 });

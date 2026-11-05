@@ -139,7 +139,7 @@ export function VoiceButton({
   );
 }
 
-/* ---------- deslizar para confirmar ---------- */
+/* ---------- botão de confirmar (um toque) ---------- */
 export function SlideToConfirm({
   label = "Continuar",
   canConfirm = true,
@@ -153,83 +153,36 @@ export function SlideToConfirm({
   onBlocked?: () => void;
   baseDelay?: number;
 }) {
-  const trackRef = useRef<HTMLDivElement>(null);
-  const [x, setX] = useState(0);
-  const [drag, setDrag] = useState(false);
   const [shake, setShake] = useState(false);
-  const offset = useRef(0);
-  const THUMB = 44;
-  const PAD = 6;
-  const max = () => (trackRef.current?.clientWidth ?? 320) - THUMB - PAD * 2;
 
-  const finish = (pos: number) => {
-    if (pos > max() * 0.85) {
-      if (canConfirm) {
-        setX(max());
-        onConfirm();
-      } else {
-        setX(0);
-        setShake(true);
-        setTimeout(() => setShake(false), 400);
-        onBlocked?.();
-      }
+  const press = () => {
+    if (canConfirm) {
+      onConfirm();
     } else {
-      setX(0);
+      setShake(true);
+      setTimeout(() => setShake(false), 400);
+      onBlocked?.();
     }
   };
 
   return (
-    <div
-      ref={trackRef}
-      className={`fade-up liquid-glass relative h-14 w-full select-none rounded-full ${shake ? "shake" : ""}`}
+    <button
+      type="button"
+      onClick={press}
+      className={`fade-up liquid-glass relative flex h-14 w-full select-none items-center rounded-full text-left active:scale-[0.99] ${shake ? "shake" : ""}`}
       style={delay(baseDelay)}
     >
-      <span className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-sm font-medium text-white/60">
+      <span className="absolute left-1.5 top-1.5 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white shadow-md">
+        <ArrowRight size={18} className="text-gray-800" />
+      </span>
+      <span className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-sm font-medium text-white/80">
         {label}
       </span>
-      <div className="pointer-events-none absolute right-5 top-1/2 z-10 flex -translate-y-1/2">
+      <span className="pointer-events-none absolute right-5 top-1/2 z-10 flex -translate-y-1/2">
         <ChevronRight size={14} className="text-white/40" />
         <ChevronRight size={14} className="-ml-2 text-white/50" />
         <ChevronRight size={14} className="-ml-2 text-white/60" />
-      </div>
-      <button
-        type="button"
-        aria-label={label}
-        onPointerDown={(e) => {
-          setDrag(true);
-          offset.current = e.clientX - x;
-          e.currentTarget.setPointerCapture(e.pointerId);
-        }}
-        onPointerMove={(e) => {
-          if (!drag) return;
-          setX(Math.min(max(), Math.max(0, e.clientX - offset.current)));
-        }}
-        onPointerUp={() => {
-          setDrag(false);
-          finish(x);
-        }}
-        onPointerCancel={() => {
-          setDrag(false);
-          setX(0);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            finish(max());
-          }
-        }}
-        className="absolute z-20 flex touch-none items-center justify-center rounded-full bg-white shadow-md"
-        style={{
-          width: THUMB,
-          height: THUMB,
-          top: PAD,
-          left: PAD,
-          transform: `translateX(${x}px)`,
-          transition: drag ? "none" : "transform 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
-        }}
-      >
-        <ArrowRight size={18} className="text-gray-800" />
-      </button>
-    </div>
+      </span>
+    </button>
   );
 }

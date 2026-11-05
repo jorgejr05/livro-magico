@@ -25,7 +25,7 @@ Veja `.env.example`. Chaves **só no servidor**; nada de chave no código ou no 
 | `LUNA_MODEL`, `SUNBURST_MODEL` | Identificadores dos modelos (confirmar na sua conta) |
 | `ELEVENLABS_API_KEY` | Narração e música |
 | `ELEVEN_VOICE_ID`, `ELEVEN_TTS_MODEL`, `ELEVEN_MUSIC_MODEL` | Voz e modelos |
-| `ACCESS_CODE` | Se preenchido, a 1ª tela pede o código e a API o exige. **Use durante os testes** para ninguém gastar seus créditos. |
+| `ACCESS_CODE` + `ACCESS_ENFORCE=1` | Opcional: com os dois definidos, a 1ª tela pede o código e a API o exige. Por padrão está desligado (sem fricção). |
 
 ## Pontos a validar na primeira execução
 - Os identificadores padrão dos modelos (`gpt-6-luna`, `gpt-image-2.5-sunburst`, `eleven_multilingual_v2`, `music_v1`) são suposições: ajuste pelas variáveis se a API usar outros nomes.
