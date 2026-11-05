@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, ArrowRight, Check } from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 export const delay = (s: number): CSSProperties => ({ animationDelay: `${s}s` });
@@ -169,19 +169,12 @@ export function SlideToConfirm({
     <button
       type="button"
       onClick={press}
-      className={`fade-up liquid-glass relative flex h-14 w-full select-none items-center rounded-full text-left active:scale-[0.99] ${shake ? "shake" : ""}`}
+      className={`fade-up liquid-glass-selected relative flex h-14 w-full select-none items-center justify-center gap-3 rounded-full px-6 text-[15px] font-medium text-white transition-transform active:scale-[0.98] ${shake ? "shake" : ""}`}
       style={delay(baseDelay)}
     >
-      <span className="absolute left-1.5 top-1.5 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white shadow-md">
-        <ArrowRight size={18} className="text-gray-800" />
-      </span>
-      <span className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-sm font-medium text-white/80">
-        {label}
-      </span>
-      <span className="pointer-events-none absolute right-5 top-1/2 z-10 flex -translate-y-1/2">
-        <ChevronRight size={14} className="text-white/40" />
-        <ChevronRight size={14} className="-ml-2 text-white/50" />
-        <ChevronRight size={14} className="-ml-2 text-white/60" />
+      <span className="relative z-10">{label}</span>
+      <span className="relative z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white">
+        <ArrowRight size={16} className="text-gray-800" />
       </span>
     </button>
   );

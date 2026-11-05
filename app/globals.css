@@ -211,3 +211,51 @@ body {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* ---------- virada de página do livro ---------- */
+@keyframes leafFlip {
+  0% {
+    transform: rotateY(0deg);
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotateY(-125deg);
+    opacity: 0;
+  }
+}
+.leaf {
+  transform-origin: 0% 50%;
+  animation: leafFlip 0.95s cubic-bezier(0.55, 0.05, 0.3, 1) forwards;
+  backface-visibility: hidden;
+}
+@keyframes leafShade {
+  0% {
+    opacity: 0;
+  }
+  40% {
+    opacity: 0.35;
+  }
+  100% {
+    opacity: 0.7;
+  }
+}
+.leaf-shade {
+  background: linear-gradient(to left, rgba(40, 20, 5, 0.5), rgba(40, 20, 5, 0));
+  animation: leafShade 0.95s ease forwards;
+  pointer-events: none;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.fade-in {
+  animation: fadeIn 0.9s ease both;
+}
