@@ -1,0 +1,51 @@
+// Helpers só de servidor. As chaves vêm de variáveis de ambiente, nunca do cliente.
+export function checkAccess(req: Request): Response | null {
+  const code = process.env.ACCESS_CODE;
+  if (!code) return null;
+  if (req.headers.get("x-access-code") === code) return null;
+  return Response.json({ error: "Código de acesso inválido." }, { status: 401 });
+}
+
+export function need(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`Variável de ambiente ausente: ${name}`);
+  return v;
+}
+
+export function fail(e: unknown, status = 500): Response {
+  const message = e instanceof Error ? e.message : "Erro inesperado";
+  return Response.json({ error: message }, { status });
+}
+
+export async function luna(system: string, user: string): Promise<any> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${need("OPENAI_API_KEY")}`,
+    },
+    body: JSON.stringify({
+      model: process.env.LUNA_MODEL || "gpt-6-luna",
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      response_format: { type: "json_object" },
+    }),
+  });
+  if (!res.ok) throw new Error(`Luna falhou (${res.status}): ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  const content: string = data?.choices?.[0]?.message?.content ?? "";
+  try {
+    return JSON.parse(content);
+  } catch {
+    throw new Error("A Luna não devolveu JSON válido.");
+  }
+}
+
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const m = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
+  if (!m) throw new Error("Imagem inválida.");
+  const bytes = Buffer.from(m[2], "base64");
+  return new Blob([bytes], { type: m[1] });
+}

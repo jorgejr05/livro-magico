@@ -1,0 +1,54 @@
+import { getTheme } from "./themes";
+import type { Answers } from "./types";
+
+export function themeBrief(a: Pick<Answers, "themeId" | "customTheme">): string {
+  const t = getTheme(a.themeId);
+  if (a.themeId === "custom" || !a.themeId) {
+    return `Tema livre pedido pelos pais: "${a.customTheme.slice(0, 200)}". Traduza para elementos genéricos (cenário, bichos, objetos, cores). Se o pedido citar personagem, filme ou marca de terceiros, NÃO use nomes, logos nem personagens: crie elementos originais com o mesmo clima.`;
+  }
+  return `Tema: ${t.label}. Cenário visual: ${t.scenePrompt}. Vocabulário e clima: ${t.vocab}.`;
+}
+
+export function profileText(a: Answers): string {
+  return [
+    `Nome da criança: ${a.childName}`,
+    `Idade que completa: ${a.age} anos`,
+    a.birth ? `Nascimento: ${a.birth}` : "",
+    `Presente de: ${a.parents}`,
+    `Ama: ${a.loves.join(", ") || "não informado"}`,
+    `Personalidade: ${a.traits.join(", ") || "não informado"}`,
+    a.memory ? `Memória ou frase especial: ${a.memory}` : "",
+    a.lunaQuestion && a.lunaAnswer ? `${a.lunaQuestion} Resposta: ${a.lunaAnswer}` : "",
+    themeBrief(a),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export const FOLLOWUP_SYSTEM = `Você é a Luna, entrevistadora carinhosa de um livro infantil personalizado, em português do Brasil.
+Com base nas respostas dos pais, faça UMA pergunta curta e calorosa que deixe a história mais pessoal (um apelido, uma brincadeira favorita, um momento marcante). Não repita o que já foi respondido.
+Responda somente JSON: {"pergunta":"..."}`;
+
+export function storySystem(photoCount: number): string {
+  return `Você é a Luna, roteirista de um livro e clipe musical infantil personalizado, em português do Brasil.
+Regras:
+- Tom caloroso, simples, adequado à idade; frases curtas para serem narradas.
+- A criança é a protagonista; cite os pais e interesses informados, sem inventar fatos sobre a família.
+- Use apenas elementos genéricos do tema; nunca nomes, personagens ou marcas de terceiros.
+- Exatamente 4 páginas de texto, cada uma com 150 a 250 caracteres; a história toda cabe em cerca de 60 segundos de fala.
+- "foto" é o índice (começando em 0) da foto usada na página, entre 0 e ${photoCount - 1}.
+- "cenas": exatamente ${photoCount} descrições curtas em inglês (uma por foto) de cenas do tema para um gerador de imagens, com a criança como protagonista; sem texto escrito na imagem.
+- "letra": 16 versos curtos de uma música alegre, com refrão repetível e o nome da criança; o último verso é de aniversário.
+- "estilo_musical": direção em inglês (gênero, andamento, instrumentos, clima) coerente com o tema.
+Responda somente JSON válido neste formato:
+{"titulo":"","paginas":[{"capitulo":"","texto":"","foto":0,"legenda":""}],"letra":[""],"estilo_musical":"","cenas":[""],"cartao_final":{"titulo":"Feliz aniversário, Nome!","subtitulo":""}}`;
+}
+
+export function imagePrompt(themeId: string, customTheme: string, scene: string): string {
+  const t = getTheme(themeId);
+  const base =
+    themeId === "custom" || !themeId
+      ? `Storybook scene based on this theme (use only generic elements, no third-party characters or brands): ${customTheme.slice(0, 200)}.`
+      : `Storybook scene. ${t.scenePrompt}.`;
+  return `${base} Scene: ${scene.slice(0, 400)}. Keep the child from the reference photo as the protagonist: preserve face, skin tone, hair and age exactly. Warm cinematic storybook lighting, rich detail, photorealistic. No text, no watermark.`;
+}
