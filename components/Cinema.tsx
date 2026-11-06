@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Maximize2, Minimize2, Pause, Play, RotateCcw } from "lucide-react";
+import { Download, Images, Maximize2, Minimize2, Pause, Play, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { downloadAll } from "@/lib/download";
 import { getTheme } from "@/lib/themes";
@@ -73,6 +73,43 @@ export function Cinema({ result, answers, onRestart }: { result: Result; answers
   const [musicFrac, setMusicFrac] = useState(0);
   const [musicEnded, setMusicEnded] = useState(false);
   const [zipping, setZipping] = useState(false);
+  const [shareFiles, setShareFiles] = useState<File[]>([]);
+  const [canShare, setCanShare] = useState(false);
+
+  // Converte as imagens para JPEG (a galeria do iPhone não aceita webp) e deixa prontas para o menu de compartilhar.
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      try {
+        const files: File[] = [];
+        for (let i = 0; i < gallery.length; i++) {
+          const img = new Image();
+          img.src = gallery[i];
+          await img.decode();
+          const c = document.createElement("canvas");
+          c.width = img.naturalWidth;
+          c.height = img.naturalHeight;
+          c.getContext("2d")!.drawImage(img, 0, 0);
+          const blob: Blob | null = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.92));
+          if (blob) files.push(new File([blob], `${story.titulo.replace(/[^\p{L}\p{N}]+/gu, "-")}-${i + 1}.jpg`, { type: "image/jpeg" }));
+        }
+        if (dead) return;
+        setShareFiles(files);
+        setCanShare(Boolean(files.length && navigator.canShare?.({ files })));
+      } catch {
+        /* sem suporte: fica só o zip */
+      }
+    })();
+    return () => { dead = true; };
+  }, [gallery, story.titulo]);
+
+  const saveToGallery = async () => {
+    try {
+      await navigator.share({ files: shareFiles, title: story.titulo });
+    } catch {
+      /* usuário fechou o menu */
+    }
+  };
 
   const startFinale = useCallback(() => {
     setPhase("finale");
@@ -339,9 +376,14 @@ export function Cinema({ result, answers, onRestart }: { result: Result; answers
         <button type="button" onClick={toggleFs} aria-label="Tela cheia" className="liquid-glass rounded-full p-2.5">
           <span className="relative z-10">{isFs ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</span>
         </button>
+        {(phase === "finale" || phase === "story") && canShare ? (
+          <button type="button" onClick={saveToGallery} className="liquid-glass-selected flex items-center gap-2 rounded-full px-4 py-2.5">
+            <span className="relative z-10 flex items-center gap-2"><Images size={16} />Salvar na galeria</span>
+          </button>
+        ) : null}
         {phase === "finale" || phase === "story" ? (
           <button type="button" onClick={doDownload} disabled={zipping} className="liquid-glass flex items-center gap-2 rounded-full px-4 py-2.5 disabled:opacity-60">
-            <span className="relative z-10 flex items-center gap-2"><Download size={16} />{zipping ? "Preparando…" : "Baixar tudo"}</span>
+            <span className="relative z-10 flex items-center gap-2"><Download size={16} />{zipping ? "Preparando…" : canShare ? "Arquivos (zip)" : "Baixar tudo"}</span>
           </button>
         ) : null}
         {phase === "finale" && showEnd ? (

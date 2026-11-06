@@ -4,6 +4,7 @@ import { ArrowLeft, Check, Loader2, Minus, Plus, Timer, Trash2, Upload } from "l
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Phone } from "./Phone";
 import { Cinema } from "./Cinema";
+import { OtherField } from "./OtherField";
 import { GlassInput, GlassPill, GlassTextarea, SelectionGrid, SlideToConfirm, VoiceButton, delay } from "./ui";
 import { fileToResizedDataUrl } from "@/lib/image";
 import { CATEGORIES, LOVES, THEMES, TRAITS, getTheme } from "@/lib/themes";
@@ -47,6 +48,12 @@ export function Wizard() {
   const set = <K extends keyof Answers>(k: K, v: Answers[K]) => setA((p) => ({ ...p, [k]: v }));
   const toggle = (k: "loves" | "traits", id: string) =>
     setA((p) => ({ ...p, [k]: p[k].includes(id) ? p[k].filter((x) => x !== id) : [...p[k], id] }));
+
+  const addCustom = (k: "loves" | "traits", v: string) => {
+    const t = v.trim().slice(0, 40);
+    if (t.length < 2) return;
+    setA((p) => (p[k].some((x) => x.toLowerCase() === t.toLowerCase()) ? p : { ...p, [k]: [...p[k], t] }));
+  };
 
   const theme = useMemo(() => (a.themeId ? getTheme(a.themeId) : null), [a.themeId]);
 
@@ -394,9 +401,19 @@ export function Wizard() {
           </div>
         );
       case "loves":
-        return <SelectionGrid items={LOVES.map((l) => ({ id: l, label: l }))} selected={a.loves} onToggle={(id) => toggle("loves", id)} />;
+        return (
+          <div className="space-y-3 pb-2">
+            <SelectionGrid items={[...LOVES, ...a.loves.filter((x) => !LOVES.includes(x))].map((l) => ({ id: l, label: l }))} selected={a.loves} onToggle={(id) => toggle("loves", id)} />
+            <OtherField placeholder="Outro? Digite e toque em adicionar" onAdd={(v) => addCustom("loves", v)} />
+          </div>
+        );
       case "traits":
-        return <SelectionGrid items={TRAITS.map((l) => ({ id: l, label: l }))} selected={a.traits} onToggle={(id) => toggle("traits", id)} />;
+        return (
+          <div className="space-y-3 pb-2">
+            <SelectionGrid items={[...TRAITS, ...a.traits.filter((x) => !TRAITS.includes(x))].map((l) => ({ id: l, label: l }))} selected={a.traits} onToggle={(id) => toggle("traits", id)} />
+            <OtherField placeholder="Outro? Digite e toque em adicionar" onAdd={(v) => addCustom("traits", v)} />
+          </div>
+        );
       case "memory":
         return (
           <div className="fade-up" style={delay(0.4)}>
