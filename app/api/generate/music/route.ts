@@ -12,16 +12,15 @@ export async function POST(req: Request) {
       return fail(new Error("Letra inválida."), 400);
     }
     const lyrics = letra.map((v: unknown) => String(v).slice(0, 120)).join("\n");
-    const prompt = `${String(estilo || "cheerful kids pop").slice(0, 300)}. Original children's birthday song sung in Brazilian Portuguese. Lyrics:\n${lyrics}`;
-    const res = await fetch("https://api.elevenlabs.io/v1/music?output_format=mp3_44100_128", {
-      method: "POST",
-      headers: { "xi-api-key": need("ELEVENLABS_API_KEY"), "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt,
-        music_length_ms: 90000,
-        model_id: process.env.ELEVEN_MUSIC_MODEL || "music_v1",
-      }),
-    });
+    const prompt = `${String(estilo || "cheerful kids pop").slice(0, 300)}. Original children's birthday song sung by a warm, cheerful adult female voice in Brazilian Portuguese, clear diction, sing the lyrics exactly in order. Lyrics:\n${lyrics}`;
+    const call = (model: string) =>
+      fetch("https://api.elevenlabs.io/v1/music?output_format=mp3_44100_128", {
+        method: "POST",
+        headers: { "xi-api-key": need("ELEVENLABS_API_KEY"), "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, music_length_ms: 90000, model_id: model }),
+      });
+    let res = await call(process.env.ELEVEN_MUSIC_MODEL || "music_v1");
+    if (!res.ok && res.status < 500 && process.env.ELEVEN_MUSIC_MODEL) res = await call("music_v1");
     if (!res.ok) throw new Error(`Música falhou (${res.status}): ${(await res.text()).slice(0, 300)}`);
     return new Response(res.body, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" } });
   } catch (e) {

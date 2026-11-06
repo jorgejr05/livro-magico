@@ -31,6 +31,9 @@ export type Result = {
   images: (string | null)[];
   narrationUrl: string | null;
   musicUrl: string | null;
+  // tempos reais (segundos): palavras de cada página da narração e início de cada verso da música
+  narrTimes?: { start: number; end: number; words: { s: number; e: number }[] }[] | null;
+  lyricStarts?: number[] | null;
   errors: string[];
 };
 

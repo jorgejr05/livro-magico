@@ -52,6 +52,8 @@ export function BookViewer({
   const [musicEnded, setMusicEnded] = useState(false);
   const [musicT, setMusicT] = useState(0);
   const [musicFrac, setMusicFrac] = useState(0);
+  const [narrNow, setNarrNow] = useState(0); // segundo atual da narração
+  const times = result.narrTimes && result.narrTimes.length === n ? result.narrTimes : null;
 
   const viewRef = useRef(-1);
   const leafTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -93,6 +95,16 @@ export function BookViewer({
   const onNarrTime = () => {
     const el = narr.current;
     if (!el || !el.duration) return;
+    if (times) {
+      const t = el.currentTime;
+      setNarrNow(t);
+      let i = 0;
+      for (let k = 0; k < n; k++) if (t >= times[k].start - 0.05) i = k;
+      const end = i + 1 < n ? times[i + 1].start : el.duration;
+      changeView(i);
+      setLocal(Math.min(1, Math.max(0, (t - times[i].start) / (end - times[i].start || 1))));
+      return;
+    }
     const frac = el.currentTime / el.duration;
     let i = 0;
     for (let k = 0; k < n; k++) if (frac >= starts[k]) i = k;
@@ -157,7 +169,8 @@ export function BookViewer({
   const goto = (v: number) => {
     const target = Math.max(-1, Math.min(n, v));
     narr.current?.pause();
-    if (narr.current?.duration && target >= 0 && target < n) narr.current.currentTime = starts[target] * narr.current.duration;
+    if (narr.current?.duration && target >= 0 && target < n)
+      narr.current.currentTime = times ? times[target].start : starts[target] * narr.current.duration;
     if (target === -1 && narr.current) narr.current.currentTime = 0;
     setLocal(target >= 0 && target < n ? 0 : 1);
     changeView(target);
@@ -261,6 +274,22 @@ export function BookViewer({
 
   const renderText = (i: number, loc: number) => {
     const words = pages[i].texto.split(" ");
+    if (times && times[i].words.length === words.filter(Boolean).length) {
+      const tw = times[i].words;
+      return words.map((w, k) => {
+        const on = loc >= 1 || narrNow >= tw[k].s - 0.02;
+        const current = loc < 1 && on && narrNow <= tw[k].e + 0.12;
+        return (
+          <span
+            key={k}
+            className="inline-block transition-all duration-200"
+            style={{ opacity: on ? 1 : 0.28, color: current ? hi : INK, fontWeight: current ? 600 : 500, marginRight: "0.28em" }}
+          >
+            {w}
+          </span>
+        );
+      });
+    }
     const lit = loc * weights[i];
     let acc = 0;
     return words.map((w, k) => {
@@ -305,7 +334,12 @@ export function BookViewer({
     );
   };
 
-  const lyricIdx = Math.min(story.letra.length - 1, Math.floor(musicFrac * story.letra.length));
+  const ls = result.lyricStarts && result.lyricStarts.length === story.letra.length ? result.lyricStarts : null;
+  let lyricIdx = Math.min(story.letra.length - 1, Math.floor(musicFrac * story.letra.length));
+  if (ls) {
+    lyricIdx = 0;
+    for (let k = 0; k < ls.length; k++) if (musicT >= ls[k] - 0.1) lyricIdx = k;
+  }
   const slideIdx = gallery.length ? Math.floor(musicT / 4) % gallery.length : 0;
   const showEnd = musicEnded || musicFrac > 0.92;
 

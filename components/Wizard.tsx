@@ -201,29 +201,63 @@ export function Wizard() {
         await Promise.all([worker(), worker()]); // 2 imagens por vez
       };
 
-      const audioJob = async (url: string, body: unknown, key: "narration" | "music", label: string) => {
-        const tAudio = Date.now();
+      let narrTimes: Result["narrTimes"] = null;
+      let lyricStarts: number[] | null = null;
+      const b64ToUrl = (b64: string) => {
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
+      };
+
+      const narrationJob = async () => {
+        const t = Date.now();
         try {
-          const r = await post(url, body);
-          const out = URL.createObjectURL(await r.blob());
-          ev(key, true, tAudio);
-          setProgress((p) => ({ ...p, [key]: true }));
+          const r = await post("/api/generate/narration", { pages: story.paginas.map((p) => p.texto) });
+          const j = await r.json();
+          narrTimes = j.pages;
+          const out = b64ToUrl(j.audio);
+          ev("narration", true, t);
+          setProgress((p) => ({ ...p, narration: true }));
           return out;
         } catch (e) {
-          errors.push(`${label}: ${(e as Error).message}`);
-          ev(key, false, tAudio, (e as Error).message);
-          setProgress((p) => ({ ...p, [key]: true }));
+          errors.push(`Narração: ${(e as Error).message}`);
+          ev("narration", false, t, (e as Error).message);
+          setProgress((p) => ({ ...p, narration: true }));
           return null;
         }
       };
 
-      const [narrationUrl, musicUrl] = await Promise.all([
-        audioJob("/api/generate/narration", { text: story.paginas.map((p) => p.texto).join("\n\n") }, "narration", "Narração"),
-        audioJob("/api/generate/music", { letra: story.letra, estilo: story.estilo_musical }, "music", "Música"),
-        imageJob(),
-      ]);
+      const musicJob = async () => {
+        const t = Date.now();
+        try {
+          const r = await post("/api/generate/music", { letra: story.letra, estilo: story.estilo_musical });
+          const blob = await r.blob();
+          const out = URL.createObjectURL(blob);
+          // Tempo real dos versos: se falhar, o livro usa a estimativa.
+          try {
+            const fd = new FormData();
+            fd.append("audio", blob, "musica.mp3");
+            fd.append("letra", JSON.stringify(story.letra));
+            const sr = await fetch("/api/generate/lyrics-sync", { method: "POST", body: fd, headers: { "x-access-code": access } });
+            if (sr.ok) lyricStarts = (await sr.json()).starts;
+          } catch {
+            /* segue com a estimativa */
+          }
+          ev("music", true, t);
+          setProgress((p) => ({ ...p, music: true }));
+          return out;
+        } catch (e) {
+          errors.push(`Música: ${(e as Error).message}`);
+          ev("music", false, t, (e as Error).message);
+          setProgress((p) => ({ ...p, music: true }));
+          return null;
+        }
+      };
 
-      setResult({ story, images, narrationUrl, musicUrl, errors });
+      const [narrationUrl, musicUrl] = await Promise.all([narrationJob(), musicJob(), imageJob()]);
+
+      setResult({ story, images, narrationUrl, musicUrl, narrTimes, lyricStarts, errors });
       await finish(errors.length ? "partial" : "done", story);
       go("result");
     } catch (e) {
