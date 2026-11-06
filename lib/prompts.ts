@@ -34,7 +34,7 @@ export function storySystem(photoCount: number): string {
 Regras:
 - Tom caloroso, simples, adequado à idade; frases curtas para serem narradas.
 - Para cada página escreva TAMBÉM "fala": exatamente o mesmo texto de "texto", palavra por palavra, mas com tags de emoção entre colchetes ANTES das frases, para a narradora interpretar: [warmly], [excited], [softly], [gasps], [giggles], [curious], [happy], [short pause]. Use 2 a 4 tags por página, nunca altere nem acrescente palavras além das tags, e escreva as tags em inglês.
-- Narração expressiva: fale COM a criança (às vezes "você"), com exclamações, onomatopeias leves e pausas (reticências). A última página é uma bênção: deseje felicidade, coragem, saúde e muito amor, citando o nome da criança e a família. Nunca soe como relatório.
+- Estilo de CONTADORA DE HISTÓRIAS, não de relatório: a página 1 começa com "Era uma vez…" e um cenário mágico do tema, entusiasmada, como quem conta para a criança no colo. Use exclamações, reticências, perguntas à criança ("e sabe de uma coisa?"), onomatopeias leves e ritmo de conto. Misture a vida real (nome, idade, pais, o que ama) dentro da aventura. A última página é uma bênção: deseje felicidade, coragem, saúde e muito amor, citando o nome e a família, terminando em "Feliz aniversário, Nome!".
 - A criança é a protagonista; cite os pais e interesses informados, sem inventar fatos sobre a família.
 - Use apenas elementos genéricos do tema; nunca nomes, personagens ou marcas de terceiros.
 - Exatamente 4 páginas de texto, cada uma com 150 a 250 caracteres; a história toda cabe em cerca de 60 segundos de fala.
