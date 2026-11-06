@@ -8,7 +8,9 @@ export async function POST(req: Request) {
   const denied = checkAccess(req);
   if (denied) return denied;
   try {
-    const { image, prompt, duration } = await req.json();
+    const { image, prompt, duration, model } = await req.json();
+    const MODELS = ["wan/v2.7/image-to-video", "kling-video/v2.6/pro/image-to-video", "minimax/hailuo-2.3/standard/image-to-video"];
+    const modelId = MODELS.includes(model) ? model : HF_MODEL;
     if (typeof image !== "string" || !image) return fail(new Error("Imagem ausente."), 400);
     let imageUrl = image;
     if (image.startsWith("data:")) {
@@ -26,14 +28,17 @@ export async function POST(req: Request) {
       imageUrl = `${base}/storage/v1/object/public/frames/${name}`;
     }
     const d = Math.min(15, Math.max(2, Number(duration) || 5));
-    const res = await fetch(`${HF_HOST}/${HF_MODEL}`, {
+    const res = await fetch(`${HF_HOST}/${modelId}`, {
       method: "POST",
       headers: { ...hfHeaders(), "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify({
         image_url: imageUrl,
         prompt: String(prompt || "").slice(0, 1500),
-        duration: d,
-        resolution: "720p",
+        ...(modelId.startsWith("kling")
+          ? { duration: d > 7 ? 10 : 5, sound: "off", aspect_ratio: "1:1" }
+          : modelId.startsWith("minimax")
+            ? { duration: d > 7 ? 10 : 6 }
+            : { duration: d, resolution: "720p" }),
       }),
     });
     const text = await res.text();

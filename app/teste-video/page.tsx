@@ -20,6 +20,7 @@ export default function TesteVideo() {
   const [dur, setDur] = useState(5);
   const [log, setLog] = useState<string[]>([]);
   const [video, setVideo] = useState("");
+  const [model, setModel] = useState("wan/v2.7/image-to-video");
   const [busy, setBusy] = useState(false);
   const stop = useRef(false);
   const add = (m: string) => setLog((l) => [...l, m]);
@@ -28,7 +29,7 @@ export default function TesteVideo() {
     setBusy(true); setVideo(""); setLog([]); stop.current = false;
     try {
       add("Enviando…");
-      const r = await fetch("/api/video/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: img, prompt, duration: dur }) });
+      const r = await fetch("/api/video/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: img, prompt, duration: dur, model }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "falhou");
       add("Pedido: " + j.request_id + " (" + j.status + ")");
@@ -49,6 +50,11 @@ export default function TesteVideo() {
       <input type="file" accept="image/*" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setImg(await toDataUrl(f)); }} />
       {img && <img src={img} alt="" style={{ width: 160, margin: "10px 0", borderRadius: 12 }} />}
       <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5} style={{ width: "100%", border: "1px solid #ccc", borderRadius: 8, padding: 8 }} />
+      <select value={model} onChange={(e) => setModel(e.target.value)} style={{ display: "block", margin: "8px 0", padding: 6 }}>
+        <option value="wan/v2.7/image-to-video">Wan 2.7 (barato)</option>
+        <option value="kling-video/v2.6/pro/image-to-video">Kling 2.6 Pro</option>
+        <option value="minimax/hailuo-2.3/standard/image-to-video">Hailuo 2.3</option>
+      </select>
       <label>Duração: {dur}s <input type="range" min={2} max={15} value={dur} onChange={(e) => setDur(+e.target.value)} /></label>
       <div><button disabled={!img || busy} onClick={run} style={{ padding: "10px 20px", background: "#111", color: "#fff", borderRadius: 999, opacity: !img || busy ? 0.5 : 1 }}>{busy ? "Gerando…" : "Gerar vídeo"}</button></div>
       <pre style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>{log.join("\n")}</pre>
