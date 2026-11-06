@@ -114,3 +114,6 @@ export const TRAITS = [
   "Sonhadora",
   "Falante",
 ];
+
+// Categorias-sugestão: os pais completam com o que a criança gosta; a Luna transforma em elementos genéricos.
+export const CATEGORIES = ["Super-herói", "Desenho animado", "Videogame", "Princesas", "Animais", "Dinossauros", "Carros", "Futebol", "Música", "Mar"];

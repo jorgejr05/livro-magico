@@ -4,7 +4,7 @@ import type { Answers } from "./types";
 export function themeBrief(a: Pick<Answers, "themeId" | "customTheme">): string {
   const t = getTheme(a.themeId);
   if (a.themeId === "custom" || !a.themeId) {
-    return `Tema livre pedido pelos pais: "${a.customTheme.slice(0, 200)}". Traduza para elementos genéricos (cenário, bichos, objetos, cores). Se o pedido citar personagem, filme ou marca de terceiros, NÃO use nomes, logos nem personagens: crie elementos originais com o mesmo clima.`;
+    return `Tema livre pedido pelos pais: "${a.customTheme.slice(0, 200)}". Traduza para elementos genéricos (cenário, bichos, objetos, cores). Se o pedido citar personagem, filme, jogo ou marca de terceiros, NÃO use nomes, logos nem personagens: entenda do que se trata e recrie só o clima, as cores, o cenário e o tipo de aventura com personagens e elementos ORIGINAIS (ex.: "herói que voa" vira um herói original de capa colorida). Nas "cenas", nunca escreva o nome do personagem.`;
   }
   return `Tema: ${t.label}. Cenário visual: ${t.scenePrompt}. Vocabulário e clima: ${t.vocab}.`;
 }

@@ -6,7 +6,7 @@ import { Phone } from "./Phone";
 import { BookViewer } from "./BookViewer";
 import { GlassInput, GlassPill, GlassTextarea, SelectionGrid, SlideToConfirm, VoiceButton, delay } from "./ui";
 import { fileToResizedDataUrl } from "@/lib/image";
-import { CUSTOM_THEME, LOVES, THEMES, TRAITS, getTheme } from "@/lib/themes";
+import { CATEGORIES, LOVES, THEMES, TRAITS, getTheme } from "@/lib/themes";
 import { EMPTY_ANSWERS, type Answers, type Photo, type Result, type Story } from "@/lib/types";
 
 type StepId =
@@ -35,6 +35,8 @@ export function Wizard() {
   const [a, setA] = useState<Answers>(EMPTY_ANSWERS);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [msg, setMsg] = useState("");
+  const [cat, setCat] = useState("");
+  const [like, setLike] = useState("");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<Progress>({ story: false, images: 0, narration: false, music: false });
   const [result, setResult] = useState<Result | null>(null);
@@ -354,15 +356,39 @@ export function Wizard() {
             <SelectionGrid
               items={[...THEMES.map((t) => ({ id: t.id, label: t.label, hint: t.hint }))]}
               selected={a.themeId && a.themeId !== "custom" ? [a.themeId] : []}
-              onToggle={(id) => setA((p) => ({ ...p, themeId: id, customTheme: "" }))}
+              onToggle={(id) => { setCat(""); setLike(""); setA((p) => ({ ...p, themeId: id, customTheme: "" })); }}
             />
             <div className="fade-up" style={delay(0.9)}>
+              <span className="mb-1.5 block px-2 text-xs text-white/60">Ou monte o seu tema</span>
+              <div className="mb-3 flex flex-wrap gap-2">
+                {CATEGORIES.map((c) => {
+                  const on = cat === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => {
+                        const nc = on ? "" : c;
+                        setCat(nc);
+                        const t = [nc, like].filter(Boolean).join(": ");
+                        setA((p) => ({ ...p, customTheme: t, themeId: t ? "custom" : "" }));
+                      }}
+                      className={`rounded-full px-3.5 py-2 text-[13px] text-white ${on ? "liquid-glass-selected" : "liquid-glass"}`}
+                    >
+                      {c}
+                    </button>
+                  );
+                })}
+              </div>
               <GlassInput
-                label={`Ou descreva outro tema (${CUSTOM_THEME.hint})`}
-                placeholder="Ex.: circo, fundo do mar, fazendinha"
-                value={a.customTheme}
+                placeholder="Do que ela(e) gosta? Ex.: heróis que voam, fundo do mar, fazendinha"
+                value={like}
                 maxLength={120}
-                onChange={(e) => setA((p) => ({ ...p, customTheme: e.target.value, themeId: e.target.value ? "custom" : "" }))}
+                onChange={(e) => {
+                  setLike(e.target.value);
+                  const t = [cat, e.target.value.trim()].filter(Boolean).join(": ");
+                  setA((p) => ({ ...p, customTheme: t, themeId: t ? "custom" : "" }));
+                }}
               />
             </div>
           </div>
