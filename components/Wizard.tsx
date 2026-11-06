@@ -3,7 +3,7 @@
 import { ArrowLeft, Check, Loader2, Minus, Plus, Timer, Trash2, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Phone } from "./Phone";
-import { BookViewer } from "./BookViewer";
+import { Cinema } from "./Cinema";
 import { GlassInput, GlassPill, GlassTextarea, SelectionGrid, SlideToConfirm, VoiceButton, delay } from "./ui";
 import { fileToResizedDataUrl } from "@/lib/image";
 import { CATEGORIES, LOVES, THEMES, TRAITS, getTheme } from "@/lib/themes";
@@ -489,7 +489,7 @@ export function Wizard() {
           </div>
         );
       case "result":
-        return result ? <BookViewer result={result} answers={a} photos={photos} onRestart={restart} /> : null;
+        return result ? <Cinema result={result} answers={a} onRestart={restart} /> : null;
     }
   })();
 
