@@ -15,7 +15,7 @@ export type Answers = {
 
 export type Photo = { id: string; dataUrl: string; name: string };
 
-export type StoryPage = { capitulo: string; texto: string; foto: number; legenda: string };
+export type StoryPage = { capitulo: string; texto: string; fala?: string; foto: number; legenda: string };
 
 export type Story = {
   titulo: string;
@@ -35,6 +35,7 @@ export type Result = {
   narrTimes?: { start: number; end: number; words: { s: number; e: number }[] }[] | null;
   lyricStarts?: number[] | null;
   errors: string[];
+  photoProblem?: boolean; // alguma foto foi recusada: pedir outra foto aos pais
 };
 
 export const EMPTY_ANSWERS: Answers = {

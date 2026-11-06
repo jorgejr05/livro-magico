@@ -3,8 +3,9 @@
 import { ChevronLeft, ChevronRight, Download, Pause, Play, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { wordWeight } from "@/lib/image";
+import { makeZip, urlToBytes, type ZipFile } from "@/lib/zip";
 import { getTheme } from "@/lib/themes";
-import type { Answers, Photo, Result } from "@/lib/types";
+import type { Answers, Photo, Result, Story } from "@/lib/types";
 
 const PAGE_H = 470;
 const INK = "#3b2a1c";
@@ -71,10 +72,31 @@ export function BookViewer({
     });
   }, [weights, total]);
 
-  const jsonUrl = useMemo(
-    () => URL.createObjectURL(new Blob([JSON.stringify(story, null, 2)], { type: "application/json" })),
-    [story],
-  );
+  const [zipping, setZipping] = useState(false);
+  const downloadAll = async () => {
+    setZipping(true);
+    try {
+      const files: ZipFile[] = [];
+      const enc = new TextEncoder();
+      const safe = story.titulo.replace(/[^\p{L}\p{N} ]/gu, "").trim() || "livro";
+      let n = 0;
+      for (let i = 0; i < images.length; i++) {
+        const img = images[i];
+        if (img) files.push({ name: `imagens/imagem-${++n}.webp`, data: await urlToBytes(img) });
+      }
+      if (result.narrationUrl) files.push({ name: "narracao.mp3", data: await urlToBytes(result.narrationUrl) });
+      if (result.musicUrl) files.push({ name: "musica.mp3", data: await urlToBytes(result.musicUrl) });
+      files.push({ name: "livro.html", data: enc.encode(bookHtml(story, images)) });
+      const url = URL.createObjectURL(makeZip(files));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${safe}.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } finally {
+      setZipping(false);
+    }
+  };
 
   /* ---------- troca de página (vira em 3D quando avança) ---------- */
   const changeView = (next: number) => {
@@ -455,35 +477,29 @@ export function BookViewer({
         />
       ) : null}
 
-      {/* downloads */}
-      <div className="liquid-glass mt-5 rounded-[28px] p-4">
-        <p className="relative z-10 mb-3 text-sm font-medium">Seus arquivos</p>
-        <div className="relative z-10 grid grid-cols-2 gap-2 text-xs">
-          {images.map((img, i) =>
-            img ? (
-              <a key={i} href={img} download={`imagem-${i + 1}.webp`} className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-2">
-                <Download size={12} /> Imagem {i + 1}
-              </a>
-            ) : null,
-          )}
-          {result.narrationUrl ? (
-            <a href={result.narrationUrl} download="narracao.mp3" className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-2">
-              <Download size={12} /> Narração
-            </a>
-          ) : null}
-          {result.musicUrl ? (
-            <a href={result.musicUrl} download="musica.mp3" className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-2">
-              <Download size={12} /> Música
-            </a>
-          ) : null}
-          <a href={jsonUrl} download="historia.json" className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-2">
-            <Download size={12} /> Roteiro (JSON)
-          </a>
+      {/* aviso amigável quando alguma foto não rendeu imagem */}
+      {result.photoProblem ? (
+        <div className="liquid-glass mt-5 rounded-[28px] p-4 text-[13px] leading-snug text-white/90">
+          <p className="relative z-10">
+            Algumas fotos não puderam virar imagem do livro. Para um resultado completo, crie um novo livro com outras fotos da criança: de frente, bem iluminadas e com roupa que cubra ombros e pernas.
+          </p>
         </div>
-        {result.errors.length ? (
-          <p className="relative z-10 mt-3 text-[11px] leading-snug text-white/60">Alguns itens falharam: {result.errors.join(" · ")}</p>
-        ) : null}
-        <p className="relative z-10 mt-3 text-[11px] text-white/50">Os arquivos ficam só neste navegador. Baixe antes de fechar a página.</p>
+      ) : null}
+
+      {/* baixar tudo */}
+      <div className="liquid-glass mt-5 rounded-[28px] p-4">
+        <button
+          type="button"
+          onClick={downloadAll}
+          disabled={zipping}
+          className="liquid-glass-selected relative z-10 flex h-12 w-full items-center justify-center gap-2 rounded-full text-[15px] font-medium text-white disabled:opacity-60"
+        >
+          <Download size={16} className="relative z-10" />
+          <span className="relative z-10">{zipping ? "Preparando…" : "Baixar tudo"}</span>
+        </button>
+        <p className="relative z-10 mt-3 text-center text-[11px] text-white/50">
+          Imagens, narração, música e o livro da história em um só arquivo. Baixe antes de fechar a página.
+        </p>
       </div>
 
       <button type="button" onClick={onRestart} className="liquid-glass mx-auto mt-4 flex items-center gap-2 rounded-full px-5 py-2.5 text-sm text-white/80">
@@ -492,4 +508,17 @@ export function BookViewer({
       </button>
     </div>
   );
+}
+
+// Livro de leitura em um arquivo só (abre em qualquer navegador, sem internet).
+function bookHtml(story: Story, images: (string | null)[]): string {
+  const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+  const pages = story.paginas
+    .map((p) => {
+      const img = images[p.foto] ?? images.find(Boolean) ?? null;
+      return `<section>${img ? `<img src="${img}" alt="">` : ""}<h2>${esc(p.capitulo)}</h2><p>${esc(p.texto)}</p></section>`;
+    })
+    .join("");
+  const letra = story.letra.map((v) => `<p>${esc(v)}</p>`).join("");
+  return `<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(story.titulo)}</title><style>body{margin:0;background:#f6efe2;color:#3b2a1a;font-family:Georgia,serif}main{max-width:640px;margin:0 auto;padding:24px}h1{text-align:center}section{margin:32px 0;text-align:center}img{width:100%;border-radius:16px}p{font-size:19px;line-height:1.6}.l p{margin:4px 0;font-size:17px}</style><main><h1>${esc(story.titulo)}</h1>${pages}<section class="l"><h2>A música</h2>${letra}</section><section><h2>${esc(story.cartao_final.titulo)}</h2><p>${esc(story.cartao_final.subtitulo)}</p></section></main></html>`;
 }

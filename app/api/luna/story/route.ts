@@ -23,7 +23,13 @@ export async function POST(req: Request) {
       texto: s(p?.texto, 400),
       foto: Math.min(n - 1, Math.max(0, Number.isInteger(p?.foto) ? p.foto : i % n)),
       legenda: s(p?.legenda, 80),
-    }));
+      fala: s(p?.fala, 800),
+    })).map((p: any) => {
+      // A fala (com tags de emoção) só vale se, sem as tags, tiver as mesmas palavras do texto; senão narra o texto puro.
+      const clean = p.fala.replace(/\[[^\]]*\]/g, " ").split(/\s+/).filter(Boolean);
+      const base = p.texto.split(/\s+/).filter(Boolean);
+      return { ...p, fala: clean.length === base.length ? p.fala : p.texto };
+    });
     const letra = (Array.isArray(raw?.letra) ? raw.letra : []).map((v: unknown) => s(v, 120)).filter(Boolean);
     const cenas = (Array.isArray(raw?.cenas) ? raw.cenas : []).map((v: unknown) => s(v, 400));
     if (paginas.length < 2 || letra.length < 4) throw new Error("A Luna devolveu uma história incompleta. Tente de novo.");

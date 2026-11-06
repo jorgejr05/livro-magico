@@ -215,7 +215,7 @@ export function Wizard() {
       const narrationJob = async () => {
         const t = Date.now();
         try {
-          const r = await post("/api/generate/narration", { pages: story.paginas.map((p) => p.texto) });
+          const r = await post("/api/generate/narration", { pages: story.paginas.map((p) => p.fala || p.texto) });
           const j = await r.json();
           narrTimes = j.pages;
           const out = b64ToUrl(j.audio);
@@ -259,7 +259,7 @@ export function Wizard() {
 
       const [narrationUrl, musicUrl] = await Promise.all([narrationJob(), musicJob(), imageJob()]);
 
-      setResult({ story, images, narrationUrl, musicUrl, narrTimes, lyricStarts, errors });
+      setResult({ story, images, narrationUrl, musicUrl, narrTimes, lyricStarts, errors, photoProblem: images.some((x) => !x) });
       await finish(errors.length ? "partial" : "done", story);
       go("result");
     } catch (e) {
@@ -446,6 +446,9 @@ export function Wizard() {
                 </button>
               ) : null}
             </div>
+            <p className="fade-up px-1 text-[11px] leading-snug text-white/60" style={delay(0.5)}>
+              Dica: use fotos de frente, bem iluminadas e com a criança vestida (de preferência com ombros e pernas cobertos). Fotos com pouca roupa podem ser recusadas pelo gerador de imagens.
+            </p>
             <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { onFiles(e.target.files); e.target.value = ""; }} />
             <label className="fade-up flex cursor-pointer items-start gap-3 rounded-[24px] p-1 text-[12px] leading-snug text-white/80" style={delay(0.6)}>
               <input type="checkbox" className="peer sr-only" checked={a.consent} onChange={(e) => set("consent", e.target.checked)} />
