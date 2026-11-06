@@ -506,7 +506,7 @@ export function Wizard() {
           </div>
         );
       case "result":
-        return result ? <Cinema result={result} answers={a} onRestart={restart} /> : null;
+        return result ? <Cinema result={result} answers={a} onRestart={restart} headers={headers()} /> : null;
     }
   })();
 

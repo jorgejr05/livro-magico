@@ -1,8 +1,9 @@
 "use client";
 
-import { Download, Images, Maximize2, Minimize2, Pause, Play, RotateCcw } from "lucide-react";
+import { Clapperboard, Download, Images, Maximize2, Minimize2, Pause, Play, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { downloadAll } from "@/lib/download";
+import { createVideo } from "@/lib/render/client";
 import { getTheme } from "@/lib/themes";
 import type { Answers, Result } from "@/lib/types";
 
@@ -13,7 +14,7 @@ const SERIF = 'Georgia, "Lora", "Times New Roman", serif';
 // Player em tela cheia no estilo do livro-vídeo: capa, livro aberto com fotos coladas, texto que acende
 // com a voz e final com as imagens e a letra. O palco tem proporção fixa e é escalado para caber
 // inteiro na tela (nunca corta).
-export function Cinema({ result, answers, onRestart }: { result: Result; answers: Answers; onRestart: () => void }) {
+export function Cinema({ result, answers, onRestart, headers }: { result: Result; answers: Answers; onRestart: () => void; headers: Record<string, string> }) {
   const { story, images } = result;
   const theme = getTheme(answers.themeId);
   const accent = theme.colors.accent;
@@ -102,6 +103,42 @@ export function Cinema({ result, answers, onRestart }: { result: Result; answers
     })();
     return () => { dead = true; };
   }, [gallery, story.titulo]);
+
+  // ----- vídeo MP4 montado no servidor -----
+  const [vStage, setVStage] = useState<"idle" | "enviando" | "montando" | "pronto" | "erro">("idle");
+  const [vFile, setVFile] = useState<File | null>(null);
+  const [vUrl, setVUrl] = useState("");
+  const makeVideo = async () => {
+    setVStage("enviando");
+    try {
+      const url = await createVideo({ result, answers, jpegs: shareFiles, headers, onStage: (st) => setVStage(st) });
+      setVUrl(url);
+      try {
+        // Já deixa o arquivo na memória: o menu de compartilhar do celular exige que o toque seja imediato.
+        const blob = await (await fetch(url)).blob();
+        setVFile(new File([blob], `${story.titulo.replace(/[^\p{L}\p{N}]+/gu, "-")}.mp4`, { type: "video/mp4" }));
+      } catch {
+        /* sem o arquivo local, o botão baixa pelo link */
+      }
+      setVStage("pronto");
+    } catch {
+      setVStage("erro");
+    }
+  };
+  const saveVideo = async () => {
+    if (vFile && navigator.canShare?.({ files: [vFile] })) {
+      try {
+        await navigator.share({ files: [vFile], title: story.titulo });
+        return;
+      } catch {
+        return; // fechou o menu
+      }
+    }
+    const a = document.createElement("a");
+    a.href = vFile ? URL.createObjectURL(vFile) : vUrl;
+    a.download = `${story.titulo}.mp4`;
+    a.click();
+  };
 
   const saveToGallery = async () => {
     try {
@@ -376,6 +413,19 @@ export function Cinema({ result, answers, onRestart }: { result: Result; answers
         <button type="button" onClick={toggleFs} aria-label="Tela cheia" className="liquid-glass rounded-full p-2.5">
           <span className="relative z-10">{isFs ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</span>
         </button>
+        {(phase === "finale" || phase === "story") && shareFiles.length && vStage !== "pronto" ? (
+          <button type="button" onClick={makeVideo} disabled={vStage === "enviando" || vStage === "montando"} className="liquid-glass-selected flex items-center gap-2 rounded-full px-4 py-2.5 disabled:opacity-70">
+            <span className="relative z-10 flex items-center gap-2">
+              <Clapperboard size={16} />
+              {vStage === "enviando" ? "Enviando…" : vStage === "montando" ? "Montando o vídeo…" : vStage === "erro" ? "Tentar o vídeo de novo" : "Criar vídeo"}
+            </span>
+          </button>
+        ) : null}
+        {vStage === "pronto" ? (
+          <button type="button" onClick={saveVideo} className="liquid-glass-selected flex items-center gap-2 rounded-full px-4 py-2.5">
+            <span className="relative z-10 flex items-center gap-2"><Clapperboard size={16} />Salvar vídeo</span>
+          </button>
+        ) : null}
         {(phase === "finale" || phase === "story") && canShare ? (
           <button type="button" onClick={saveToGallery} className="liquid-glass-selected flex items-center gap-2 rounded-full px-4 py-2.5">
             <span className="relative z-10 flex items-center gap-2"><Images size={16} />Salvar na galeria</span>
@@ -392,6 +442,16 @@ export function Cinema({ result, answers, onRestart }: { result: Result; answers
           </button>
         ) : null}
       </div>
+
+      {vStage === "montando" || vStage === "enviando" ? (
+        <p className="absolute inset-x-0 bottom-16 z-10 mx-auto max-w-md px-4 text-center text-xs text-white/80">
+          Estamos montando o seu vídeo (leva 1 a 3 minutos). Pode continuar assistindo; mantenha esta página aberta.
+        </p>
+      ) : vStage === "erro" ? (
+        <p className="absolute inset-x-0 bottom-16 z-10 mx-auto max-w-md px-4 text-center text-xs text-white/80">
+          Não conseguimos montar o vídeo agora. Tente de novo; as imagens continuam disponíveis para salvar.
+        </p>
+      ) : null}
 
       {result.photoProblem && phase === "finale" && showEnd ? (
         <p className="absolute inset-x-0 top-3 z-10 mx-auto max-w-md px-4 text-center text-xs text-white/80">
