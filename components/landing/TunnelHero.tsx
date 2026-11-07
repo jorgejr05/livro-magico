@@ -11,13 +11,14 @@ import { ARTS, ArtScene, type Art } from "./art";
 type Card = { art: Art; cos: number; sin: number; rx: number; ry: number; rot: number; index: number };
 const CARDS: Card[] = ARTS.map((art, i) => {
   const a = i * 137.5 * (Math.PI / 180);
-  return { art, cos: Math.cos(a), sin: Math.sin(a), rx: 0.28 + (i % 3) * 0.08, ry: 0.26 + (i % 2) * 0.09, rot: (i % 2 === 0 ? 1 : -1) * (3 + (i % 5) * 2), index: i };
+  const side = i % 2 === 0 ? -1 : 1; // alterna esquerda/direita: o miolo fica livre para o título
+  return { art, cos: side * (0.8 + 0.2 * Math.abs(Math.cos(a))), sin: Math.sin(a), rx: 0.36 + (i % 3) * 0.05, ry: 0.3 + (i % 2) * 0.08, rot: (i % 2 === 0 ? -1 : 1) * (3 + (i % 5) * 2), index: i };
 });
 const SPRING = { stiffness: 60, damping: 25, mass: 0.5 };
 
 function TunnelCard({ card, progress, pointer, total, stage }: { card: Card; progress: MotionValue<number>; pointer: { x: MotionValue<number>; y: MotionValue<number> }; total: number; stage: { width: number; height: number; mobile: boolean } }) {
   const span = 0.6;
-  const start = (card.index / total) * 0.55 - 0.32; // algumas capas já aparecem logo na abertura
+  const start = (card.index / total) * 0.55; // na abertura nenhuma capa cobre o título
   const local = useTransform(progress, [start, start + span], [0, 1]);
   const z = useTransform(local, [0, 1], [stage.mobile ? -1200 : -1700, stage.mobile ? 350 : 520]);
   const opacity = useTransform(local, [0, 0.15, 0.8, 0.98], [0, 1, 1, 0]);
@@ -66,8 +67,8 @@ export function TunnelHero() {
     return () => window.removeEventListener("pointermove", on);
   }, [reduce, rawX, rawY]);
 
-  const headScale = useTransform(progress, [0, 0.35, 0.5], [1, 1.12, 1.3]);
-  const headOpacity = useTransform(progress, [0, 0.3, 0.48], [1, 1, 0]);
+  const headScale = useTransform(progress, [0, 0.15, 0.3], [1, 1.05, 1.15]);
+  const headOpacity = useTransform(progress, [0, 0.12, 0.3], [1, 1, 0]);
   const outroOpacity = useTransform(progress, [0.62, 0.8, 1], [0, 1, 1]);
   const outroScale = useTransform(progress, [0.62, 0.9], [0.85, 1]);
   const hint = useTransform(progress, [0, 0.08], [1, 0]);
@@ -80,18 +81,18 @@ export function TunnelHero() {
         <div className="pointer-events-none absolute h-[48vmin] w-[48vmin] rounded-full border border-indigo-400/15" />
         <div className="pointer-events-none absolute h-[76vmin] w-[76vmin] rounded-full border border-dashed border-white/10" />
 
-        <motion.div style={{ scale: headScale, opacity: headOpacity }} className="relative z-30 flex max-w-3xl flex-col items-center px-6 text-center">
+        <motion.div style={{ scale: headScale, opacity: headOpacity }} className="relative z-30 flex max-w-3xl flex-col items-center px-6 pb-10 pt-24 text-center">
           <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-1.5 text-xs font-medium text-indigo-200 backdrop-blur">
             <Sparkles size={14} className="text-amber-300" /> Livro, narração, música e vídeo com o seu filho como herói
           </span>
-          <h1 className="text-4xl font-extrabold leading-[1.02] tracking-tight sm:text-6xl md:text-7xl">
+          <h1 className="text-3xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
             Transforme o aniversário do seu filho em uma{" "}
             <span className="shine-text bg-gradient-to-r from-amber-200 via-amber-400 to-pink-300 bg-clip-text text-transparent">aventura inesquecível</span>
           </h1>
-          <p className="mt-5 max-w-xl text-base text-white/70 sm:text-lg">
+          <p className="mt-4 max-w-xl text-sm text-white/75 sm:text-base">
             Você responde algumas perguntas e envia fotos. A gente cria um livro ilustrado, uma história narrada com emoção e uma música de parabéns só dele(a).
           </p>
-          <Link href="/criar" className="group mt-8 inline-flex items-center gap-3 rounded-full bg-gradient-to-b from-amber-300 to-amber-500 px-8 py-4 text-base font-bold text-amber-950 shadow-[0_10px_40px_-8px_rgba(251,191,36,.7)] transition hover:scale-[1.03]">
+          <Link href="/criar" className="group mt-6 inline-flex items-center gap-3 rounded-full bg-gradient-to-b from-amber-300 to-amber-500 px-8 py-4 text-base font-bold text-amber-950 shadow-[0_10px_40px_-8px_rgba(251,191,36,.7)] transition hover:scale-[1.03]">
             Criar meu livro agora <ArrowRight size={18} className="transition group-hover:translate-x-1" />
           </Link>
           <p className="mt-3 text-xs text-white/50">Sem cadastro · funciona no celular</p>
@@ -102,7 +103,7 @@ export function TunnelHero() {
           <p className="mt-4 text-white/70">Escolha uma aventura ou invente a sua. Role para ver como funciona.</p>
         </motion.div>
 
-        <motion.div style={{ opacity: hint }} className="pointer-events-none absolute bottom-8 z-30 flex flex-col items-center gap-2 text-[11px] uppercase tracking-[0.3em] text-white/50">
+        <motion.div style={{ opacity: hint }} className="pointer-events-none absolute bottom-3 z-30 hidden flex-col sm:flex items-center gap-2 text-[11px] uppercase tracking-[0.3em] text-white/50">
           <span>Role para explorar</span>
           <div className="h-6 w-px bg-gradient-to-b from-amber-300 to-transparent" />
         </motion.div>
