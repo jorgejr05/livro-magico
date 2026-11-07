@@ -58,7 +58,7 @@ export async function renderVideo(opts: {
   if (!imgs.length) throw new Error("Sem imagens para o vídeo.");
 
   const times = eventTimes(job, tm);
-  const { total, finaleAt } = layout(job, tm);
+  const { total, finaleAt } = layout(tm);
   const canvas = createCanvas(OUT_W, OUT_H);
   const ctx: any = canvas.getContext("2d");
   const mk = (w: number, h: number) => createCanvas(w, h);

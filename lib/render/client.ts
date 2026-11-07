@@ -1,6 +1,5 @@
-import { getTheme } from "@/lib/themes";
 import type { Answers, Result } from "@/lib/types";
-import type { Job } from "./scene";
+import { buildJob } from "./job";
 
 async function put(job: string, name: string, body: Blob, type: string, headers: Record<string, string>) {
   const r = await fetch(`/api/render/upload?job=${job}&name=${name}`, { method: "PUT", headers: { ...headers, "Content-Type": type }, body });
@@ -16,36 +15,9 @@ export async function createVideo(opts: {
   onStage: (s: "enviando" | "montando") => void;
 }): Promise<string> {
   const { result, answers, jpegs, headers } = opts;
-  const { story } = result;
-  const theme = getTheme(answers.themeId);
   const job = crypto.randomUUID();
-  const n = story.paginas.length;
   const G = jpegs.length;
-
-  const times = result.narrTimes && result.narrTimes.length === n ? result.narrTimes : null;
-  const jobJson: Job = {
-    title: story.titulo,
-    age: Number(answers.age) || 0,
-    theme: { from: theme.colors.from, to: theme.colors.to, accent: theme.colors.accent },
-    pages: story.paginas.map((p, i) => {
-      const s = Math.floor((i * G) / n);
-      const e = Math.max(Math.floor(((i + 1) * G) / n), s + 1);
-      const imgs = Array.from({ length: Math.max(0, Math.min(e, G) - s) }, (_, k) => s + k);
-      return {
-        capitulo: p.capitulo,
-        texto: p.texto,
-        start: times ? times[i].start : 0,
-        words: times && times[i].words.length === p.texto.split(/\s+/).filter(Boolean).length ? times[i].words : null,
-        imgs: imgs.length ? imgs : [0],
-      };
-    }),
-    letra: story.letra,
-    lyricStarts: result.lyricStarts && result.lyricStarts.length === story.letra.length ? result.lyricStarts : null,
-    cartao: story.cartao_final,
-    nImages: G,
-  };
-  // Sem tempos reais da narração: distribui as páginas pela duração (o servidor corrige com a duração real).
-  if (!times) jobJson.pages.forEach((p, i) => (p.start = i * 15));
+  const jobJson = buildJob(result, answers, G);
 
   opts.onStage("enviando");
   await put(job, "job.json", new Blob([JSON.stringify(jobJson)]), "application/json", headers);

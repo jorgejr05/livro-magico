@@ -1,16 +1,21 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Desenho do livro-vídeo em canvas 2D. Roda igual no navegador (testes) e no servidor (@napi-rs/canvas).
-// Coordenadas de projeto: 1600x900. O chamador escala para a resolução final.
+// Livro-vídeo: capa de livro fechado, imagens em tela cheia com legenda só do que está sendo dito/cantado,
+// e livro fechado de novo no final. Este módulo decide O QUE aparece em cada instante (stateAt) e desenha em
+// canvas 2D (drawFrame), igual no navegador (testes) e no servidor (@napi-rs/canvas).
+import { timedWords, toChunks, type Chunk } from "./subs";
 
 export const DW = 1600;
 export const DH = 900;
-export const COVER_SEC = 3;
-export const GAP_SEC = 1;
-export const TAIL_SEC = 4;
+export const COVER_SEC = 4;
+export const GAP_SEC = 0.5;
+export const TAIL_SEC = 6;
 export const FPS = 15;
+export const FADE = 0.6;
+export const SLIDE_SEC = 6;
 
 export type Job = {
   title: string;
+  childName?: string;
   age: number;
   theme: { from: string; to: string; accent: string };
   pages: { capitulo: string; texto: string; start: number; words: { s: number; e: number }[] | null; imgs: number[] }[];
@@ -19,51 +24,140 @@ export type Job = {
   cartao: { titulo: string; subtitulo: string };
   nImages: number;
 };
-
 export type Timing = { narrDur: number; musicDur: number };
 export type MakeCanvas = (w: number, h: number) => any;
 
-const SERIF = "Lora, Georgia, serif";
-const SANS = "Poppins, Helvetica, Arial, sans-serif";
-const INK = "#3b2a1c";
-const PAPER = "#fbf4e4";
-const RED = "#c0453a";
+export type SubWord = { w: string; on: boolean; cur: boolean };
+export type State = {
+  phase: "cover" | "story" | "music" | "end";
+  cur: number;
+  prev: number;
+  mix: number; // 0..1: quanto da imagem atual já apareceu sobre a anterior
+  sub: SubWord[] | null;
+  subKind: "narr" | "lyric" | null;
+};
 
-export function layout(job: Job, tm: Timing) {
+export function layout(tm: Timing) {
   const narrAt = COVER_SEC;
   const finaleAt = narrAt + tm.narrDur + GAP_SEC;
-  const total = finaleAt + tm.musicDur + TAIL_SEC;
-  return { narrAt, finaleAt, total };
+  const endAt = finaleAt + tm.musicDur;
+  return { narrAt, finaleAt, endAt, total: endAt + TAIL_SEC };
 }
 
-/** Instantes em que a imagem muda (palavra acende, página vira, verso troca, slide troca...). */
+/* ---------- o que aparece em cada instante ---------- */
+type Plan = { chunks: Chunk[]; switches: { t: number; idx: number }[]; lyric: { s: number; e: number }[] };
+const plans = new WeakMap<Job, Map<string, Plan>>();
+
+function plan(job: Job, tm: Timing): Plan {
+  const key = `${tm.narrDur}|${tm.musicDur}`;
+  let m = plans.get(job);
+  if (!m) plans.set(job, (m = new Map()));
+  const hit = m.get(key);
+  if (hit) return hit;
+  const { narrAt, finaleAt } = layout(tm);
+  const chunks: Chunk[] = [];
+  const switches: { t: number; idx: number }[] = [];
+  const G = Math.max(1, job.nImages);
+  job.pages.forEach((p, i) => {
+    const end = i + 1 < job.pages.length ? job.pages[i + 1].start : tm.narrDur;
+    chunks.push(...toChunks(timedWords(p.texto, p.start, end, p.words)));
+    const k = p.imgs.length || 1;
+    for (let j = 0; j < k; j++) switches.push({ t: narrAt + p.start + ((end - p.start) * j) / k, idx: (p.imgs[j] ?? 0) % G });
+  });
+  if (switches.length) switches[0].t = 0;
+  let j = 0;
+  for (let t = 0; t < tm.musicDur; t += SLIDE_SEC) switches.push({ t: finaleAt + t, idx: j++ % G });
+  const L = job.letra.length;
+  const lyric = job.letra.map((_, k) => {
+    const s = job.lyricStarts && job.lyricStarts.length === L ? job.lyricStarts[k] : (tm.musicDur * k) / L;
+    const nxt = k + 1 < L ? (job.lyricStarts && job.lyricStarts.length === L ? job.lyricStarts[k + 1] : (tm.musicDur * (k + 1)) / L) : tm.musicDur;
+    return { s, e: Math.min(nxt, s + 8) };
+  });
+  const p: Plan = { chunks, switches, lyric };
+  m.set(key, p);
+  return p;
+}
+
+export function stateAt(job: Job, tm: Timing, T: number): State {
+  const { narrAt, finaleAt, endAt } = layout(tm);
+  const pl = plan(job, tm);
+  if (T < narrAt) return { phase: "cover", cur: 0, prev: 0, mix: 1, sub: null, subKind: null };
+  if (T >= endAt) return { phase: "end", cur: 0, prev: 0, mix: 1, sub: null, subKind: null };
+
+  let k = 0;
+  for (let i = 0; i < pl.switches.length; i++) if (pl.switches[i].t <= T) k = i;
+  const cur = pl.switches[k]?.idx ?? 0;
+  const prev = k > 0 ? pl.switches[k - 1].idx : cur;
+  const mix = k > 0 ? Math.min(1, Math.max(0, (T - pl.switches[k].t) / FADE)) : 1;
+
+  if (T < finaleAt) {
+    const tn = T - narrAt;
+    let ci = -1;
+    for (let i = 0; i < pl.chunks.length; i++) if (pl.chunks[i].start <= tn + 0.04) ci = i;
+    let sub: SubWord[] | null = null;
+    if (ci >= 0) {
+      const c = pl.chunks[ci];
+      const next = pl.chunks[ci + 1];
+      if (tn <= c.end + 0.7 || (next && next.start - tn < 0.2)) {
+        let last = -1;
+        c.words.forEach((w, i) => { if (w.s <= tn + 0.02) last = i; });
+        sub = c.words.map((w, i) => ({ w: w.w, on: i <= last, cur: i === last && tn <= w.e + 0.12 }));
+      }
+    }
+    return { phase: "story", cur, prev, mix, sub, subKind: "narr" };
+  }
+
+  const tmu = T - finaleAt;
+  let li = -1;
+  for (let i = 0; i < pl.lyric.length; i++) if (pl.lyric[i].s - 0.1 <= tmu) li = i;
+  let sub: SubWord[] | null = null;
+  if (li >= 0 && tmu <= pl.lyric[li].e) {
+    const toks = job.letra[li].split(/\s+/).filter(Boolean);
+    const reveal = Math.min(2.2, (pl.lyric[li].e - pl.lyric[li].s) * 0.7);
+    const el = tmu - pl.lyric[li].s;
+    let last = -1;
+    toks.forEach((_, i) => { if (el >= (i / toks.length) * reveal - 0.05) last = i; });
+    sub = toks.map((w, i) => ({ w, on: i <= last, cur: i === last && el < reveal + 0.3 }));
+  }
+  return { phase: "music", cur, prev, mix, sub, subKind: "lyric" };
+}
+
+/** Instantes em que o quadro muda (palavras, trechos, trocas de imagem com fusão, versos, capa e fim). */
 export function eventTimes(job: Job, tm: Timing): number[] {
-  const { narrAt, finaleAt, total } = layout(job, tm);
+  const { narrAt, finaleAt, endAt, total } = layout(tm);
+  const pl = plan(job, tm);
   const set = new Set<number>();
   const add = (t: number) => {
     if (t >= 0 && t < total) set.add(Math.round(t * FPS) / FPS);
   };
-  add(0);
-  add(narrAt);
-  job.pages.forEach((p, i) => {
-    add(narrAt + p.start);
-    const end = i + 1 < job.pages.length ? job.pages[i + 1].start : tm.narrDur;
-    p.words?.forEach((w) => {
+  [0, narrAt, finaleAt, endAt].forEach(add);
+  pl.chunks.forEach((c) => {
+    add(c.end + 0.7);
+    c.words.forEach((w) => {
       add(narrAt + w.s);
       add(narrAt + w.e + 0.12);
     });
-    const k = p.imgs.length;
-    for (let j = 1; j < k; j++) add(narrAt + p.start + ((end - p.start) * j) / k);
+    add(narrAt + c.start);
+    add(narrAt + c.end + 0.7);
   });
-  add(finaleAt);
-  for (let t = 4; t < tm.musicDur; t += 4) add(finaleAt + t);
-  const L = job.letra.length;
-  for (let k = 0; k < L; k++) add(finaleAt + (job.lyricStarts ? job.lyricStarts[k] : (tm.musicDur * k) / L));
-  add(finaleAt + tm.musicDur * 0.93);
+  pl.switches.forEach((s, i) => {
+    if (i === 0) return;
+    for (let t = 0; t <= FADE + 1e-6; t += 1 / FPS) add(s.t + t);
+  });
+  pl.lyric.forEach((l, k) => {
+    const toks = job.letra[k].split(/\s+/).filter(Boolean);
+    const reveal = Math.min(2.2, (l.e - l.s) * 0.7);
+    toks.forEach((_, i) => add(finaleAt + l.s + (i / toks.length) * reveal));
+    add(finaleAt + l.s + reveal + 0.3);
+    add(finaleAt + l.e + 0.01);
+  });
   return [...set].sort((a, b) => a - b);
 }
 
-/* ---------- utilidades de desenho ---------- */
+/* ---------- desenho ---------- */
+const SANS = "Poppins, Helvetica, Arial, sans-serif";
+const GOLD = "#d9b36a";
+
 function coverDraw(ctx: any, img: any, x: number, y: number, w: number, h: number) {
   const s = Math.max(w / img.width, h / img.height);
   const sw = w / s;
@@ -75,9 +169,8 @@ const blurCache = new Map<any, any>();
 function blurred(mk: MakeCanvas, img: any) {
   let c = blurCache.get(img);
   if (!c) {
-    c = mk(40, 23);
-    const g = c.getContext("2d");
-    coverDraw(g, img, 0, 0, 40, 23);
+    c = mk(48, 27);
+    coverDraw(c.getContext("2d"), img, 0, 0, 48, 27);
     blurCache.set(img, c);
   }
   return c;
@@ -87,12 +180,9 @@ function sparkles(ctx: any, accent: string, t: number, count = 20) {
   ctx.save();
   ctx.fillStyle = accent;
   for (let k = 0; k < count; k++) {
-    const x = ((k * 37) % 96) / 96 * DW;
-    const y = ((k * 53) % 92) / 92 * DH;
-    const r = 2.5 + (k % 3) * 1.6;
     ctx.globalAlpha = 0.25 + 0.6 * Math.abs(Math.sin(t * 0.8 + k));
     ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.arc((((k * 37) % 96) / 96) * DW, (((k * 53) % 92) / 92) * DH, 2.5 + (k % 3) * 1.6, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.restore();
@@ -100,8 +190,7 @@ function sparkles(ctx: any, accent: string, t: number, count = 20) {
 
 function spaced(ctx: any, text: string, cx: number, y: number, spacing: number) {
   const widths = [...text].map((ch) => ctx.measureText(ch).width + spacing);
-  const total = widths.reduce((a, b) => a + b, 0) - spacing;
-  let x = cx - total / 2;
+  let x = cx - (widths.reduce((a, b) => a + b, 0) - spacing) / 2;
   ctx.textAlign = "left";
   [...text].forEach((ch, i) => {
     ctx.fillText(ch, x, y);
@@ -109,229 +198,23 @@ function spaced(ctx: any, text: string, cx: number, y: number, spacing: number) 
   });
 }
 
-function polaroid(ctx: any, img: any, cx: number, cy: number, w: number, rotDeg: number, accent: string) {
-  const pad = w * 0.045;
-  const side = w - pad * 2;
-  const h = side + pad + w * 0.13;
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate((rotDeg * Math.PI) / 180);
-  ctx.shadowColor = "rgba(0,0,0,.4)";
-  ctx.shadowBlur = 36;
-  ctx.shadowOffsetY = 16;
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(-w / 2, -h / 2, w, h);
-  ctx.shadowColor = "transparent";
-  coverDraw(ctx, img, -w / 2 + pad, -h / 2 + pad, side, side);
-  ctx.save();
-  ctx.translate(0, -h / 2);
-  ctx.rotate((-3 * Math.PI) / 180);
-  ctx.globalAlpha = 0.85;
-  ctx.fillStyle = accent;
-  ctx.fillRect(-64, -18, 128, 36);
-  ctx.restore();
-  ctx.restore();
-}
-
-function wrap(ctx: any, words: string[], maxW: number) {
+function wrapLines(ctx: any, words: string[], maxW: number): number[][] {
   const space = ctx.measureText(" ").width;
-  const lines: { word: string; idx: number; x: number }[][] = [];
-  let line: { word: string; idx: number; x: number }[] = [];
+  const lines: number[][] = [];
+  let line: number[] = [];
   let x = 0;
-  words.forEach((w, idx) => {
+  words.forEach((w, i) => {
     const ww = ctx.measureText(w).width;
     if (x + ww > maxW && line.length) {
       lines.push(line);
       line = [];
       x = 0;
     }
-    line.push({ word: w, idx, x });
+    line.push(i);
     x += ww + space;
   });
   if (line.length) lines.push(line);
   return lines;
-}
-
-/* ---------- quadro ---------- */
-export function drawFrame(ctx: any, mk: MakeCanvas, imgs: any[], job: Job, tm: Timing, t: number) {
-  const { narrAt, finaleAt } = layout(job, tm);
-  const th = job.theme;
-  const gallery = imgs.filter(Boolean);
-  const sparkT = t;
-
-  if (t < narrAt || gallery.length === 0) return drawCover(ctx, mk, gallery, job, sparkT);
-  if (t < finaleAt) return drawPage(ctx, gallery, job, tm, t - narrAt, sparkT);
-  return drawFinale(ctx, gallery, job, tm, t - finaleAt, sparkT);
-}
-
-function drawCover(ctx: any, mk: MakeCanvas, gallery: any[], job: Job, t: number) {
-  const th = job.theme;
-  const g = ctx.createRadialGradient(DW / 2, DH * 0.4, 50, DW / 2, DH * 0.4, DW * 0.75);
-  g.addColorStop(0, th.from);
-  g.addColorStop(1, th.to);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, DW, DH);
-  if (gallery[0]) {
-    ctx.imageSmoothingEnabled = true;
-    ctx.globalAlpha = 0.6;
-    ctx.drawImage(blurred(mk, gallery[0]), 0, 0, DW, DH);
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = "rgba(0,0,0,.35)";
-    ctx.fillRect(0, 0, DW, DH);
-  }
-  sparkles(ctx, th.accent, t, 22);
-  ctx.textAlign = "center";
-  ctx.fillStyle = th.accent;
-  ctx.font = `500 22px ${SANS}`;
-  ctx.textBaseline = "alphabetic";
-  spaced(ctx, `UM LIVRO DE AVENTURA PARA OS ${job.age} ANINHOS`, DW / 2, 96, 7);
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#fff";
-  ctx.font = `700 78px ${SANS}`;
-  const title = fitText(ctx, job.title, DW - 200, 78, 700);
-  ctx.fillText(title.text, DW / 2, 190);
-  if (gallery[0]) polaroid(ctx, gallery[0], DW / 2, 560, 400, -2, th.accent);
-}
-
-function fitText(ctx: any, text: string, maxW: number, size: number, weight: number) {
-  let s = size;
-  ctx.font = `${weight} ${s}px ${SANS}`;
-  while (ctx.measureText(text).width > maxW && s > 36) {
-    s -= 4;
-    ctx.font = `${weight} ${s}px ${SANS}`;
-  }
-  return { text, size: s };
-}
-
-function drawPage(ctx: any, gallery: any[], job: Job, tm: Timing, tn: number, sparkT: number) {
-  const th = job.theme;
-  const pages = job.pages;
-  let i = 0;
-  for (let k = 0; k < pages.length; k++) if (tn >= pages[k].start - 0.05) i = k;
-  const p = pages[i];
-  const end = i + 1 < pages.length ? pages[i + 1].start : tm.narrDur;
-  const local = Math.min(1, Math.max(0, (tn - p.start) / (end - p.start || 1)));
-
-  const g = ctx.createLinearGradient(0, 0, DW, DH);
-  g.addColorStop(0, th.to);
-  g.addColorStop(1, "#1a1208");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, DW, DH);
-  sparkles(ctx, th.accent, sparkT, 12);
-
-  // livro aberto
-  const bx = 60, by = 50, bw = 1480, bh = 800;
-  ctx.save();
-  ctx.shadowColor = "rgba(0,0,0,.55)";
-  ctx.shadowBlur = 60;
-  ctx.shadowOffsetY = 24;
-  rr(ctx, bx, by, bw, bh, 28);
-  ctx.fillStyle = "#6b4328";
-  ctx.fill();
-  ctx.restore();
-  rr(ctx, bx + 14, by + 14, bw - 28, bh - 28, 16);
-  ctx.fillStyle = PAPER;
-  ctx.fill();
-  const mid = bx + bw / 2;
-  const lg = ctx.createLinearGradient(mid - 40, 0, mid + 40, 0);
-  lg.addColorStop(0, "rgba(0,0,0,0)");
-  lg.addColorStop(0.5, "rgba(60,30,10,.18)");
-  lg.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = lg;
-  ctx.fillRect(mid - 40, by + 14, 80, bh - 28);
-
-  const imgsIdx = p.imgs.length ? p.imgs : [0];
-  const active = Math.min(imgsIdx.length - 1, Math.floor(local * imgsIdx.length));
-  const img = gallery[imgsIdx[active] % gallery.length];
-  const imgOnLeft = i % 2 === 0;
-  const imgCx = imgOnLeft ? bx + bw * 0.25 : bx + bw * 0.75;
-  const txtX = imgOnLeft ? mid + 70 : bx + 70;
-  const txtW = bw / 2 - 140;
-  polaroid(ctx, img, imgCx, by + bh / 2, 500, imgOnLeft ? -2 : 2, th.accent);
-
-  // texto
-  ctx.textBaseline = "alphabetic";
-  ctx.font = `400 40px ${SERIF}`;
-  const words = p.texto.split(/\s+/).filter(Boolean);
-  const lines = wrap(ctx, words, txtW);
-  const lh = 62;
-  const blockH = lines.length * lh + 110;
-  let y = by + bh / 2 - blockH / 2 + 30;
-  ctx.fillStyle = RED;
-  ctx.font = `500 21px ${SANS}`;
-  spaced(ctx, p.capitulo.toUpperCase(), txtX + txtW / 2, y, 5);
-  ctx.fillStyle = "rgba(192,69,58,.4)";
-  ctx.fillRect(txtX + txtW / 2 - 70, y + 18, 140, 2);
-  y += 80;
-  ctx.font = `400 40px ${SERIF}`;
-  ctx.textAlign = "left";
-  const tw = p.words && p.words.length === words.length ? p.words : null;
-  for (const line of lines) {
-    for (const w of line) {
-      let on: boolean, cur = false;
-      if (tw) {
-        on = tn >= tw[w.idx].s - 0.02;
-        cur = on && tn <= tw[w.idx].e + 0.12;
-      } else {
-        on = local >= w.idx / words.length;
-        cur = on && local < (w.idx + 1) / words.length;
-      }
-      ctx.globalAlpha = on ? 1 : 0.25;
-      ctx.fillStyle = cur ? th.from : INK;
-      ctx.fillText(w.word, txtX + w.x, y);
-    }
-    y += lh;
-  }
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "rgba(59,42,28,.5)";
-  ctx.font = `400 20px ${SERIF}`;
-  ctx.textAlign = "center";
-  ctx.fillText(`— ${i + 1} —`, txtX + txtW / 2, by + bh - 50);
-}
-
-function drawFinale(ctx: any, gallery: any[], job: Job, tm: Timing, tm_: number, sparkT: number) {
-  const th = job.theme;
-  const g = ctx.createRadialGradient(DW / 2, DH * 0.35, 50, DW / 2, DH * 0.35, DW * 0.8);
-  g.addColorStop(0, th.from);
-  g.addColorStop(1, th.to);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, DW, DH);
-  sparkles(ctx, th.accent, sparkT, 24);
-  const G = gallery.length;
-  const slide = Math.floor(tm_ / 4) % G;
-  const spots: [number, number, number][] = [[240, 190, -7], [1360, 200, 6], [330, 500, 5], [1270, 490, -6]];
-  ctx.globalAlpha = 0.92;
-  spots.forEach(([x, y, r], o) => polaroid(ctx, gallery[(slide + o + 1) % G], x, y, 270, r, th.accent));
-  ctx.globalAlpha = 1;
-  polaroid(ctx, gallery[slide], DW / 2, 320, 460, 0, th.accent);
-
-  const L = job.letra.length;
-  let li = Math.min(L - 1, Math.floor((tm_ / tm.musicDur) * L));
-  if (job.lyricStarts && job.lyricStarts.length === L) {
-    li = 0;
-    for (let k = 0; k < L; k++) if (tm_ >= job.lyricStarts[k] - 0.1) li = k;
-  }
-  const showEnd = tm_ / tm.musicDur > 0.93;
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#fff";
-  ctx.shadowColor = "rgba(0,0,0,.6)";
-  ctx.shadowBlur = 14;
-  if (showEnd) {
-    ctx.fillStyle = "#ffe3a3";
-    ctx.font = `700 56px ${SANS}`;
-    ctx.fillText(job.cartao.titulo, DW / 2, 790);
-    ctx.fillStyle = "#fff";
-    ctx.font = `500 26px ${SANS}`;
-    ctx.fillText(job.cartao.subtitulo, DW / 2, 836);
-  } else {
-    ctx.globalAlpha = 0.55;
-    ctx.font = `500 24px ${SANS}`;
-    ctx.fillText(job.letra[Math.max(0, li - 1)] || "", DW / 2, 770);
-    ctx.globalAlpha = 1;
-    ctx.font = `700 44px ${SANS}`;
-    ctx.fillText(job.letra[li] || "", DW / 2, 830);
-  }
-  ctx.shadowColor = "transparent";
 }
 
 function rr(ctx: any, x: number, y: number, w: number, h: number, r: number) {
@@ -342,4 +225,123 @@ function rr(ctx: any, x: number, y: number, w: number, h: number, r: number) {
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
+}
+
+function drawBook(ctx: any, mk: MakeCanvas, img: any, job: Job, end: boolean, t: number) {
+  const th = job.theme;
+  const g = ctx.createRadialGradient(DW / 2, DH * 0.4, 50, DW / 2, DH * 0.4, DW * 0.75);
+  g.addColorStop(0, th.from);
+  g.addColorStop(1, th.to);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, DW, DH);
+  if (img) {
+    ctx.globalAlpha = 0.35;
+    ctx.drawImage(blurred(mk, img), 0, 0, DW, DH);
+    ctx.globalAlpha = 1;
+  }
+  sparkles(ctx, th.accent, t, 22);
+
+  const bx = 390, by = 50, bw = 820, bh = 800;
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,.6)";
+  ctx.shadowBlur = 70;
+  ctx.shadowOffsetY = 30;
+  rr(ctx, bx, by, bw, bh, 26);
+  const lg = ctx.createLinearGradient(bx, by, bx + bw, by + bh);
+  lg.addColorStop(0, "#6b4328");
+  lg.addColorStop(1, "#3f2614");
+  ctx.fillStyle = lg;
+  ctx.fill();
+  ctx.restore();
+  const sp = ctx.createLinearGradient(bx, 0, bx + 60, 0);
+  sp.addColorStop(0, "rgba(0,0,0,.5)");
+  sp.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = sp;
+  ctx.fillRect(bx, by, 60, bh);
+  ctx.strokeStyle = GOLD;
+  ctx.lineWidth = 3;
+  rr(ctx, bx + 34, by + 34, bw - 68, bh - 68, 14);
+  ctx.stroke();
+
+  const cx = bx + bw / 2;
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = GOLD;
+  ctx.font = `500 20px ${SANS}`;
+  spaced(ctx, end ? "FIM  ·  COM MUITO AMOR" : `UM LIVRO DE AVENTURA PARA OS ${job.age} ANINHOS`, cx, by + 100, 6);
+  if (img) {
+    const s = 390, iy = by + 135;
+    ctx.fillStyle = GOLD;
+    ctx.fillRect(cx - s / 2 - 7, iy - 7, s + 14, s + 14);
+    coverDraw(ctx, img, cx - s / 2, iy, s, s);
+  }
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#f3d58f";
+  const title = end ? job.cartao.titulo : job.title;
+  let size = 46;
+  ctx.font = `700 ${size}px ${SANS}`;
+  while (ctx.measureText(title).width > bw - 140 && size > 28) {
+    size -= 3;
+    ctx.font = `700 ${size}px ${SANS}`;
+  }
+  ctx.fillText(title, cx, by + 640);
+  if (end) {
+    ctx.fillStyle = "rgba(255,255,255,.85)";
+    ctx.font = `500 24px ${SANS}`;
+    ctx.fillText(job.cartao.subtitulo, cx, by + 695);
+  }
+}
+
+function drawImageFull(ctx: any, mk: MakeCanvas, gallery: any[], st: State) {
+  const G = gallery.length;
+  const layer = (img: any, alpha: number) => {
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(blurred(mk, img), 0, 0, DW, DH);
+    ctx.fillStyle = "rgba(0,0,0,.45)";
+    ctx.fillRect(0, 0, DW, DH);
+    coverDraw(ctx, img, (DW - DH) / 2, 0, DH, DH);
+    ctx.globalAlpha = 1;
+  };
+  if (st.mix < 1) layer(gallery[st.prev % G], 1);
+  layer(gallery[st.cur % G], st.mix);
+  const g = ctx.createLinearGradient(0, DH * 0.62, 0, DH);
+  g.addColorStop(0, "rgba(0,0,0,0)");
+  g.addColorStop(1, "rgba(0,0,0,.72)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, DH * 0.62, DW, DH * 0.38);
+}
+
+function drawSub(ctx: any, st: State, accent: string) {
+  if (!st.sub || !st.sub.length) return;
+  ctx.font = `700 46px ${SANS}`;
+  ctx.textBaseline = "alphabetic";
+  const words = st.sub.map((x) => x.w);
+  const lines = wrapLines(ctx, words, 1280);
+  const space = ctx.measureText(" ").width;
+  const lh = 66;
+  let y = DH - 60 - (lines.length - 1) * lh;
+  ctx.shadowColor = "rgba(0,0,0,.85)";
+  ctx.shadowBlur = 14;
+  ctx.textAlign = "left";
+  for (const line of lines) {
+    const widths = line.map((i) => ctx.measureText(words[i]).width);
+    let x = (DW - (widths.reduce((a, b) => a + b, 0) + space * (line.length - 1))) / 2;
+    line.forEach((i, n) => {
+      if (st.sub![i].on) {
+        ctx.fillStyle = st.sub![i].cur ? accent : "#fff";
+        ctx.fillText(words[i], x, y);
+      }
+      x += widths[n] + space;
+    });
+    y += lh;
+  }
+  ctx.shadowColor = "transparent";
+}
+
+export function drawFrame(ctx: any, mk: MakeCanvas, imgs: any[], job: Job, tm: Timing, T: number) {
+  const gallery = imgs.filter(Boolean);
+  const st = stateAt(job, tm, T);
+  if (!gallery.length || st.phase === "cover") return drawBook(ctx, mk, gallery[0], job, false, T);
+  if (st.phase === "end") return drawBook(ctx, mk, gallery[0], job, true, T);
+  drawImageFull(ctx, mk, gallery, st);
+  drawSub(ctx, st, "#ffe3a3");
 }
