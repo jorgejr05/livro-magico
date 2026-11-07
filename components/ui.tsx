@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 export const delay = (s: number): CSSProperties => ({ animationDelay: `${s}s` });
@@ -173,9 +173,6 @@ export function SlideToConfirm({
       style={delay(baseDelay)}
     >
       <span className="relative z-10">{label}</span>
-      <span className="relative z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white">
-        <ArrowRight size={16} className="text-gray-800" />
-      </span>
     </button>
   );
 }

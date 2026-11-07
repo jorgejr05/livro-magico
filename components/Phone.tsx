@@ -6,7 +6,6 @@ const BG =
 export function Phone({ children, tint }: { children: ReactNode; tint?: { from: string; to: string } }) {
   return (
     <div className="phone">
-      <div className="island" />
       {/* fundo em tela cheia, desfocado */}
       <div
         className="absolute inset-0 bg-cover bg-center"
@@ -19,7 +18,7 @@ export function Phone({ children, tint }: { children: ReactNode; tint?: { from: 
           style={{ background: `linear-gradient(160deg, ${tint.from}cc, ${tint.to}e6)` }}
         />
       ) : null}
-      <div className="relative z-10 h-full w-full text-white">{children}</div>
+      <div className="relative z-10 mx-auto h-full w-full max-w-[480px] text-white">{children}</div>
     </div>
   );
 }
