@@ -1,4 +1,4 @@
-import { checkAccess, fail, luna } from "@/lib/server";
+import { checkAccess, fail, jsonUsage, luna } from "@/lib/server";
 import { FOLLOWUP_SYSTEM, profileText } from "@/lib/prompts";
 import type { Answers } from "@/lib/types";
 
@@ -11,9 +11,9 @@ export async function POST(req: Request) {
   try {
     const { answers } = (await req.json()) as { answers: Answers };
     if (!answers?.childName) return fail(new Error("Dados incompletos."), 400);
-    const out = await luna(FOLLOWUP_SYSTEM, profileText(answers));
+    const { out, usage } = await luna(FOLLOWUP_SYSTEM, profileText(answers));
     const pergunta = typeof out?.pergunta === "string" ? out.pergunta.slice(0, 200) : "";
-    return Response.json({ pergunta });
+    return jsonUsage({ pergunta }, usage);
   } catch (e) {
     return fail(e);
   }

@@ -29,6 +29,16 @@ const FALLBACK_QUESTION = "Qual é o apelido carinhoso ou a brincadeira favorita
 
 type Progress = { story: boolean; images: number; narration: boolean; music: boolean };
 
+// Consumo real que o servidor devolve em cada chamada (cabeçalho x-usage).
+function readUsage(r: Response): unknown {
+  try {
+    const h = r.headers.get("x-usage");
+    return h ? JSON.parse(h) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function Wizard() {
   const [accessRequired, setAccessRequired] = useState<boolean | null>(null);
   const [access, setAccess] = useState("");
@@ -43,6 +53,7 @@ export function Wizard() {
   const [result, setResult] = useState<Result | null>(null);
   const [fatal, setFatal] = useState("");
   const started = useRef(false);
+  const followupUsage = useRef<unknown>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const set = <K extends keyof Answers>(k: K, v: Answers[K]) => setA((p) => ({ ...p, [k]: v }));
@@ -120,6 +131,7 @@ export function Wizard() {
     go("luna");
     try {
       const r = await fetch("/api/luna/followup", { method: "POST", headers: headers(), body: JSON.stringify({ answers: a }) });
+      followupUsage.current = readUsage(r);
       const d = await r.json();
       set("lunaQuestion", r.ok && d.pergunta ? d.pergunta : FALLBACK_QUESTION);
     } catch {
@@ -146,11 +158,21 @@ export function Wizard() {
 
   /* ---------- geração completa ---------- */
   const generate = useCallback(async () => {
+    const usages: Record<string, unknown> = {};
+    const eleven = async () => {
+      try {
+        const r = await fetch("/api/usage/eleven", { headers: headers(), cache: "no-store" });
+        return r.ok ? await r.json() : null;
+      } catch {
+        return null;
+      }
+    };
+    const elevenBefore = await eleven();
     const errors: string[] = [];
     const t0 = Date.now();
-    const events: { step: string; ok: boolean; ms: number; error?: string }[] = [];
+    const events: { step: string; ok: boolean; ms: number; error?: string; usage?: unknown }[] = [];
     const ev = (step: string, ok: boolean, since: number, error?: string) =>
-      events.push({ step, ok, ms: Date.now() - since, error });
+      events.push({ step, ok, ms: Date.now() - since, error, usage: usages[step] });
     let orderId: string | null = null;
     try {
       const r = await fetch("/api/orders/start", { method: "POST", headers: headers(), body: JSON.stringify({ answers: a, photoCount: photos.length }) });
@@ -158,16 +180,19 @@ export function Wizard() {
     } catch {}
     const finish = async (status: string, story: Story | null) => {
       if (!orderId) return;
+      const elevenAfter = await eleven();
+      if (followupUsage.current) events.push({ step: "followup", ok: true, ms: 0, usage: followupUsage.current });
       try {
         await fetch("/api/orders/finish", {
           method: "POST",
           headers: headers(),
-          body: JSON.stringify({ id: orderId, status, story, errors, events, totalMs: Date.now() - t0 }),
+          body: JSON.stringify({ id: orderId, status, story, errors, events, totalMs: Date.now() - t0, usage: { eleven_before: elevenBefore, eleven_after: elevenAfter } }),
         });
       } catch {}
     };
-    const post = async (url: string, body: unknown) => {
+    const post = async (url: string, body: unknown, step?: string) => {
       const r = await fetch(url, { method: "POST", headers: headers(), body: JSON.stringify(body) });
+      if (step) usages[step] = readUsage(r);
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         throw new Error(d?.error || `Erro ${r.status}`);
@@ -177,7 +202,7 @@ export function Wizard() {
 
     try {
       const tStory = Date.now();
-      const sr = await post("/api/luna/story", { answers: a, photoCount: photos.length });
+      const sr = await post("/api/luna/story", { answers: a, photoCount: photos.length }, "story");
       const { story } = (await sr.json()) as { story: Story };
       ev("story", true, tStory);
       setProgress((p) => ({ ...p, story: true }));
@@ -197,7 +222,7 @@ export function Wizard() {
                 themeId: a.themeId,
                 customTheme: a.customTheme,
                 consent: a.consent,
-              });
+              }, `image_${i + 1}`);
               images[i] = (await r.json()).image as string;
               ev(`image_${i + 1}`, true, tImg);
             } catch (e) {
@@ -222,7 +247,7 @@ export function Wizard() {
       const narrationJob = async () => {
         const t = Date.now();
         try {
-          const r = await post("/api/generate/narration", { pages: story.paginas.map((p) => p.fala || p.texto) });
+          const r = await post("/api/generate/narration", { pages: story.paginas.map((p) => p.fala || p.texto) }, "narration");
           const j = await r.json();
           narrTimes = j.pages;
           const out = b64ToUrl(j.audio);
@@ -240,7 +265,7 @@ export function Wizard() {
       const musicJob = async () => {
         const t = Date.now();
         try {
-          const r = await post("/api/generate/music", { letra: story.letra, estilo: story.estilo_musical });
+          const r = await post("/api/generate/music", { letra: story.letra, estilo: story.estilo_musical }, "music");
           const blob = await r.blob();
           const out = URL.createObjectURL(blob);
           // Tempo real dos versos: se falhar, o livro usa a estimativa.
@@ -249,7 +274,11 @@ export function Wizard() {
             fd.append("audio", blob, "musica.mp3");
             fd.append("letra", JSON.stringify(story.letra));
             const sr = await fetch("/api/generate/lyrics-sync", { method: "POST", body: fd, headers: { "x-access-code": access } });
-            if (sr.ok) lyricStarts = (await sr.json()).starts;
+            if (sr.ok) {
+              usages["lyrics_sync"] = readUsage(sr);
+              ev("lyrics_sync", true, t);
+              lyricStarts = (await sr.json()).starts;
+            }
           } catch {
             /* segue com a estimativa */
           }

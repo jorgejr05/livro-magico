@@ -1,4 +1,4 @@
-import { checkAccess, fail, need } from "@/lib/server";
+import { billingHeaders, checkAccess, fail, jsonUsage, need } from "@/lib/server";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -78,7 +78,14 @@ export async function POST(req: Request) {
       pageOffset += t.length + SEP.length;
       return { start: Math.max(0, pageStart), end: pageEnd, words };
     });
-    return Response.json({ audio: data.audio_base64, pages: out }, { headers: { "Cache-Control": "no-store" } });
+    return jsonUsage({ audio: data.audio_base64, pages: out }, {
+      provider: "elevenlabs-tts",
+      model: used,
+      chars_sent: sent.length,
+      chars_with_tags: full.length,
+      audio_seconds: al.character_end_times_seconds[al.character_end_times_seconds.length - 1] ?? null,
+      headers: billingHeaders(res),
+    });
   } catch (e) {
     return fail(e);
   }

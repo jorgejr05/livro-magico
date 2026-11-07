@@ -1,4 +1,4 @@
-import { checkAccess, fail, luna } from "@/lib/server";
+import { checkAccess, fail, jsonUsage, luna } from "@/lib/server";
 import { profileText, storySystem } from "@/lib/prompts";
 import type { Answers, Story } from "@/lib/types";
 
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
     const n = Math.max(1, Math.min(10, Number(photoCount) || 1));
     if (!answers?.childName || !answers.consent) return fail(new Error("Dados ou consentimento ausentes."), 400);
 
-    const raw = await luna(storySystem(n), profileText(answers));
+    const { out: raw, usage } = await luna(storySystem(n), profileText(answers));
 
     // Validação mínima: o resto do app assume este formato.
     const paginas = (Array.isArray(raw?.paginas) ? raw.paginas : []).slice(0, 4).map((p: any, i: number) => ({
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
         subtitulo: s(raw?.cartao_final?.subtitulo, 100) || `${answers.age} aninhos de amor e coragem`,
       },
     };
-    return Response.json({ story });
+    return jsonUsage({ story }, usage);
   } catch (e) {
     return fail(e);
   }

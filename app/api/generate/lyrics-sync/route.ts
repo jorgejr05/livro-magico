@@ -1,4 +1,4 @@
-import { checkAccess, fail, need } from "@/lib/server";
+import { billingHeaders, checkAccess, fail, jsonUsage, need } from "@/lib/server";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -59,7 +59,14 @@ export async function POST(req: Request) {
     }
     // garante ordem crescente
     for (let i = 1; i < starts.length; i++) if (starts[i] < starts[i - 1]) starts[i] = starts[i - 1];
-    return Response.json({ starts });
+    return jsonUsage({ starts }, {
+      provider: "elevenlabs-stt",
+      model: "scribe_v1",
+      audio_bytes: audio.size,
+      audio_seconds: data.audio_duration_secs ?? (words.length ? words[words.length - 1].e : null),
+      words: words.length,
+      headers: billingHeaders(res),
+    });
   } catch (e) {
     return fail(e);
   }

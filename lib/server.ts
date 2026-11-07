@@ -18,7 +18,22 @@ export function fail(e: unknown, status = 500): Response {
   return Response.json({ error: message }, { status });
 }
 
-export async function luna(system: string, user: string): Promise<any> {
+// Consumo REAL medido em cada chamada (sai no cabeçalho x-usage e é gravado por pedido).
+export function billingHeaders(res: Response): Record<string, string> {
+  const o: Record<string, string> = {};
+  res.headers.forEach((v, k) => {
+    if (/cost|character|credit|usage|token|duration|request-id/i.test(k)) o[k] = v;
+  });
+  return o;
+}
+export function withUsage(body: BodyInit | null, usage: unknown, init: ResponseInit & { headers?: Record<string, string> } = {}): Response {
+  return new Response(body, { ...init, headers: { ...(init.headers || {}), "x-usage": JSON.stringify(usage).slice(0, 3500) } });
+}
+export function jsonUsage(data: unknown, usage: unknown, status = 200): Response {
+  return withUsage(JSON.stringify(data), usage, { status, headers: { "Content-Type": "application/json" } });
+}
+
+export async function luna(system: string, user: string): Promise<{ out: any; usage: any }> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -37,8 +52,18 @@ export async function luna(system: string, user: string): Promise<any> {
   if (!res.ok) throw new Error(`Luna falhou (${res.status}): ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   const content: string = data?.choices?.[0]?.message?.content ?? "";
+  const u = data?.usage || {};
+  const usage = {
+    provider: "openai-chat",
+    model: data?.model || process.env.LUNA_MODEL || "gpt-6-luna",
+    prompt_tokens: u.prompt_tokens ?? null,
+    completion_tokens: u.completion_tokens ?? null,
+    total_tokens: u.total_tokens ?? null,
+    cached_tokens: u.prompt_tokens_details?.cached_tokens ?? null,
+    reasoning_tokens: u.completion_tokens_details?.reasoning_tokens ?? null,
+  };
   try {
-    return JSON.parse(content);
+    return { out: JSON.parse(content), usage };
   } catch {
     throw new Error("A Luna não devolveu JSON válido.");
   }

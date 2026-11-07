@@ -1,4 +1,4 @@
-import { checkAccess, fail, need } from "@/lib/server";
+import { billingHeaders, checkAccess, fail, need, withUsage } from "@/lib/server";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -22,7 +22,13 @@ export async function POST(req: Request) {
     let res = await call(process.env.ELEVEN_MUSIC_MODEL || "music_v1");
     if (!res.ok && res.status < 500 && process.env.ELEVEN_MUSIC_MODEL) res = await call("music_v1");
     if (!res.ok) throw new Error(`Música falhou (${res.status}): ${(await res.text()).slice(0, 300)}`);
-    return new Response(res.body, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" } });
+    return withUsage(res.body, {
+      provider: "elevenlabs-music",
+      model: process.env.ELEVEN_MUSIC_MODEL || "music_v1",
+      requested_ms: 90000,
+      prompt_chars: prompt.length,
+      headers: billingHeaders(res),
+    }, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" } });
   } catch (e) {
     return fail(e);
   }

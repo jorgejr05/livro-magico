@@ -1,4 +1,4 @@
-import { checkAccess, dataUrlToBlob, fail, need } from "@/lib/server";
+import { checkAccess, dataUrlToBlob, fail, jsonUsage, need } from "@/lib/server";
 import { imagePrompt } from "@/lib/prompts";
 
 export const runtime = "nodejs";
@@ -30,11 +30,13 @@ export async function POST(req: Request) {
       });
     };
     const base = imagePrompt(String(themeId || ""), String(customTheme || ""), scene);
+    let attempts = 1;
     let res = await call(base);
     if (res.status === 400) {
       // Recusa do filtro de segurança: tenta de novo com enquadramento mais fechado e roupa longa.
       const body = await res.text();
       if (!/moderation|safety/i.test(body)) throw new Error(`Sunburst falhou (400): ${body.slice(0, 300)}`);
+      attempts = 2;
       res = await call(`${base} Framing: gentle portrait from the chest up, child wearing a cozy long-sleeved outfit and a themed hat or accessory, wholesome family-friendly children's book illustration.`);
       if (res.status === 400) throw new Error("MODERATION: a foto foi recusada pelo filtro de segurança.");
     }
@@ -42,7 +44,18 @@ export async function POST(req: Request) {
     const data = await res.json();
     const b64 = data?.data?.[0]?.b64_json;
     if (!b64) throw new Error("O gerador de imagens não devolveu imagem.");
-    return Response.json({ image: `data:image/webp;base64,${b64}` });
+    const u = data?.usage || {};
+    return jsonUsage({ image: `data:image/webp;base64,${b64}` }, {
+      provider: "openai-image",
+      model: process.env.SUNBURST_MODEL || "gpt-image-2.5-sunburst",
+      attempts, // 2 = a primeira foi recusada pela moderação e refeita
+      input_tokens: u.input_tokens ?? null,
+      input_text_tokens: u.input_tokens_details?.text_tokens ?? null,
+      input_image_tokens: u.input_tokens_details?.image_tokens ?? null,
+      output_tokens: u.output_tokens ?? null,
+      total_tokens: u.total_tokens ?? null,
+      photo_bytes: photoBlob.size,
+    });
   } catch (e) {
     return fail(e);
   }

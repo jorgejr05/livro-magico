@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   const denied = checkAccess(req);
   if (denied) return denied;
   try {
-    const { id, status, story, errors, events, totalMs } = await req.json();
+    const { id, status, story, errors, events, totalMs, usage } = await req.json();
     if (typeof id !== "string" || !UUID.test(id)) return fail(new Error("Pedido inválido."), 400);
     await rpc("finish_order", {
       p_id: id,
@@ -21,6 +21,7 @@ export async function POST(req: Request) {
         errors: Array.isArray(errors) ? errors.slice(0, 20).map((x: unknown) => String(x).slice(0, 300)) : [],
         events: Array.isArray(events) ? events.slice(0, 40) : [],
         total_ms: Number.isFinite(totalMs) ? Math.round(totalMs) : null,
+        usage: usage && typeof usage === "object" ? usage : null,
       },
     });
     return Response.json({ ok: true });
