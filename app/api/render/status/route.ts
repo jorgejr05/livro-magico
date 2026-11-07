@@ -1,4 +1,5 @@
-import { checkAccess, fail, need } from "@/lib/server";
+import { checkAccess, fail } from "@/lib/server";
+import { r2Get } from "@/lib/r2";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -10,9 +11,9 @@ export async function GET(req: Request) {
   try {
     const id = new URL(req.url).searchParams.get("job") || "";
     if (!/^[0-9a-f-]{36}$/i.test(id)) return fail(new Error("Pedido inválido."), 400);
-    const url = `${need("SUPABASE_URL").replace(/\/$/, "")}/storage/v1/object/public/renders/${id}/video.mp4`;
-    const r = await fetch(url, { method: "HEAD" });
-    return Response.json({ ready: r.ok, url: r.ok ? url : null });
+    const r = await r2Get(`renders/${id}/video.mp4`);
+    await r?.body?.cancel();
+    return Response.json({ ready: Boolean(r), url: r ? `/api/render/video?job=${id}` : null });
   } catch (e) {
     return fail(e);
   }

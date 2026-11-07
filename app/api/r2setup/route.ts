@@ -19,7 +19,7 @@ export async function GET() {
       const r = await fetch(`${r2Api()}${path}`, { method, headers: { ...r2Auth(), "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
       out[name] = { status: r.status, body: (await r.text()).slice(0, 400) };
     };
-    await call("dominioPublico", "/domains/managed", "PUT", { enabled: true });
+    await call("dominioPublico", "/domains/managed", "PUT", { enabled: false });
     await call("dominioLer", "/domains/managed", "GET");
     await call("expiracao", "/lifecycle", "PUT", {
       rules: [{ id: "expira-1-dia", enabled: true, conditions: { prefix: "" }, deleteObjectsTransition: { condition: { type: "Age", maxAge: 86400 } } }],

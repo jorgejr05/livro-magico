@@ -1,4 +1,5 @@
-import { checkAccess, fail, need } from "@/lib/server";
+import { checkAccess, fail } from "@/lib/server";
+import { r2Put } from "@/lib/r2";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -17,17 +18,7 @@ export async function PUT(req: Request) {
     if (!UUID.test(job) || !NAME.test(name)) return fail(new Error("Parâmetros inválidos."), 400);
     const body = await req.arrayBuffer();
     if (!body.byteLength || body.byteLength > 4_300_000) return fail(new Error("Arquivo vazio ou grande demais."), 400);
-    const base = need("SUPABASE_URL").replace(/\/$/, "");
-    const res = await fetch(`${base}/storage/v1/object/renders/${job}/${name}`, {
-      method: "POST",
-      headers: {
-        apikey: need("SUPABASE_PUBLISHABLE_KEY"),
-        "Content-Type": req.headers.get("content-type") || "application/octet-stream",
-        "x-upsert": "false",
-      },
-      body,
-    });
-    if (!res.ok) throw new Error(`Upload falhou (${res.status}): ${(await res.text()).slice(0, 200)}`);
+    await r2Put(`renders/${job}/${name}`, body, req.headers.get("content-type") || "application/octet-stream");
     return Response.json({ ok: true });
   } catch (e) {
     return fail(e);

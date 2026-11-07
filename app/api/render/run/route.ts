@@ -1,7 +1,8 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { checkAccess, fail, need } from "@/lib/server";
+import { checkAccess, fail } from "@/lib/server";
+import { r2Get, r2Put } from "@/lib/r2";
 import { renderVideo } from "@/lib/render/server";
 import type { Job } from "@/lib/render/scene";
 
@@ -16,13 +17,11 @@ export async function POST(req: Request) {
   try {
     const { job: id } = await req.json();
     if (typeof id !== "string" || !UUID.test(id)) return fail(new Error("Pedido inválido."), 400);
-    const base = need("SUPABASE_URL").replace(/\/$/, "");
-    const pub = `${base}/storage/v1/object/public/renders/${id}`;
     const dir = await mkdtemp(path.join(os.tmpdir(), "render-"));
 
     const get = async (name: string, optional = false): Promise<string | null> => {
-      const r = await fetch(`${pub}/${name}`);
-      if (!r.ok) {
+      const r = await r2Get(`renders/${id}/${name}`);
+      if (!r) {
         if (optional) return null;
         throw new Error(`Arquivo ausente: ${name}`);
       }
@@ -43,14 +42,8 @@ export async function POST(req: Request) {
 
     const out = await renderVideo({ dir, job, imageFiles, narrationFile, musicFile });
 
-    const video = await readFile(out);
-    const up = await fetch(`${base}/storage/v1/object/renders/${id}/video.mp4`, {
-      method: "POST",
-      headers: { apikey: need("SUPABASE_PUBLISHABLE_KEY"), "Content-Type": "video/mp4", "x-upsert": "true" },
-      body: video,
-    });
-    if (!up.ok) throw new Error(`Não consegui guardar o vídeo (${up.status}): ${(await up.text()).slice(0, 200)}`);
-    return Response.json({ url: `${pub}/video.mp4` });
+    await r2Put(`renders/${id}/video.mp4`, await readFile(out), "video/mp4");
+    return Response.json({ url: `/api/render/video?job=${id}` });
   } catch (e) {
     return fail(e);
   }
