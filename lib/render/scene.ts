@@ -6,7 +6,7 @@ import { timedWords, toChunks, type Chunk } from "./subs";
 
 export const DW = 1600;
 export const DH = 900;
-export const COVER_SEC = 4;
+export const COVER_SEC = 7; // abertura animada: capa, título, subtítulo (a narração só começa depois)
 export const GAP_SEC = 0.5;
 export const TAIL_SEC = 6;
 export const FPS = 15;
@@ -16,6 +16,8 @@ export const SLIDE_SEC = 6;
 export type Job = {
   title: string;
   childName?: string;
+  parents?: string;
+  birth?: string; // AAAA-MM-DD
   age: number;
   theme: { from: string; to: string; accent: string };
   pages: { capitulo: string; texto: string; start: number; words: { s: number; e: number }[] | null; imgs: number[] }[];
@@ -131,6 +133,7 @@ export function eventTimes(job: Job, tm: Timing): number[] {
     if (t >= 0 && t < total) set.add(Math.round(t * FPS) / FPS);
   };
   [0, narrAt, finaleAt, endAt].forEach(add);
+  for (let t = 0; t < COVER_SEC; t += 1 / FPS) add(t); // abertura animada (título, ondas, brilhos)
   pl.chunks.forEach((c) => {
     add(c.end + 0.7);
     c.words.forEach((w) => {
@@ -176,13 +179,13 @@ function blurred(mk: MakeCanvas, img: any) {
   return c;
 }
 
-function sparkles(ctx: any, accent: string, t: number, count = 20) {
+function sparkles(ctx: any, accent: string, t: number, count = 20, W = DW, H = DH) {
   ctx.save();
   ctx.fillStyle = accent;
   for (let k = 0; k < count; k++) {
     ctx.globalAlpha = 0.25 + 0.6 * Math.abs(Math.sin(t * 0.8 + k));
     ctx.beginPath();
-    ctx.arc((((k * 37) % 96) / 96) * DW, (((k * 53) % 92) / 92) * DH, 2.5 + (k % 3) * 1.6, 0, Math.PI * 2);
+    ctx.arc((((k * 37) % 96) / 96) * W, (((k * 53) % 92) / 92) * H, 2.5 + (k % 3) * 1.6, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.restore();
@@ -291,6 +294,142 @@ function drawBook(ctx: any, mk: MakeCanvas, img: any, job: Job, end: boolean, t:
   }
 }
 
+const MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+
+function prettyDate(iso?: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
+  return m ? `${Number(m[3])} de ${MONTHS[Number(m[2]) - 1]} de ${m[1]}` : "";
+}
+
+/** Abertura animada: imagem de capa, chamada, título palavra por palavra, subtítulo e dedicatória. t = segundos desde o início. */
+export function drawCover(ctx: any, mk: MakeCanvas, img: any, job: Job, t: number, W = DW, H = DH) {
+  const th = job.theme;
+  const clamp = (x: number) => Math.min(1, Math.max(0, x));
+  const ease = (x: number) => 1 - Math.pow(1 - clamp(x), 3);
+  const portrait = H > W;
+
+  const g = ctx.createRadialGradient(W / 2, H * 0.4, 50, W / 2, H * 0.4, Math.max(W, H) * 0.8);
+  g.addColorStop(0, th.from);
+  g.addColorStop(1, th.to);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  if (img) {
+    ctx.globalAlpha = 0.5;
+    ctx.drawImage(blurred(mk, img), 0, 0, W, H);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "rgba(0,0,0,.3)";
+    ctx.fillRect(0, 0, W, H);
+    // imagem de capa: entra com fusão e um zoom suave que continua devagar
+    const s = portrait ? W : H;
+    const ix = (W - s) / 2;
+    const iy = portrait ? (H - s) / 2 + 70 : 0;
+    const k = 1.12 - 0.1 * ease(t / 2.6) + 0.012 * Math.min(t, 12);
+    ctx.save();
+    ctx.globalAlpha = ease(t / 1.2);
+    ctx.beginPath();
+    ctx.rect(ix, iy, s, s);
+    ctx.clip();
+    coverDraw(ctx, img, ix - (s * (k - 1)) / 2, iy - (s * (k - 1)) / 2, s * k, s * k);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    // bordas da imagem se dissolvem no fundo desfocado
+    for (const [x0, x1, a0, a1] of [[ix, ix + s * 0.12, 0.55, 0], [ix + s * 0.88, ix + s, 0, 0.55]] as const) {
+      const eg = ctx.createLinearGradient(x0, 0, x1, 0);
+      eg.addColorStop(0, `rgba(0,0,0,${a0})`);
+      eg.addColorStop(1, `rgba(0,0,0,${a1})`);
+      ctx.fillStyle = eg;
+      ctx.fillRect(x0, iy, x1 - x0, s);
+    }
+  }
+  const top = ctx.createLinearGradient(0, 0, 0, H * 0.42);
+  top.addColorStop(0, "rgba(0,0,0,.7)");
+  top.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = top;
+  ctx.fillRect(0, 0, W, H * 0.42);
+  const bot = ctx.createLinearGradient(0, H * 0.6, 0, H);
+  bot.addColorStop(0, "rgba(0,0,0,0)");
+  bot.addColorStop(1, "rgba(0,0,0,.78)");
+  ctx.fillStyle = bot;
+  ctx.fillRect(0, H * 0.6, W, H * 0.4);
+  sparkles(ctx, th.accent, t, 22, W, H);
+
+  // ondas animadas na base
+  const wave = (y0: number, amp: number, wl: number, sp: number, color: string) => {
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (let x = 0; x <= W + 8; x += 8) ctx.lineTo(x, y0 + amp * Math.sin((x / wl) * Math.PI * 2 + t * sp));
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  };
+  wave(H - 52, 9, 420, 1.3, "rgba(255,255,255,.14)");
+  wave(H - 38, 8, 340, -1.7, th.accent + "66");
+  wave(H - 22, 7, 300, 1.1, th.to + "ee");
+
+  ctx.textBaseline = "alphabetic";
+  ctx.shadowColor = "rgba(0,0,0,.7)";
+  ctx.shadowBlur = 16;
+
+  // chamada do topo
+  ctx.globalAlpha = ease((t - 0.2) / 0.7);
+  ctx.fillStyle = GOLD;
+  ctx.font = `500 ${portrait ? 24 : 22}px ${SANS}`;
+  const over = job.age === 1 ? "UM LIVRO DE AVENTURA PARA O 1 ANINHO" : `UM LIVRO DE AVENTURA PARA OS ${job.age} ANINHOS`;
+  spaced(ctx, over, W / 2, portrait ? 190 : 70, 5);
+  ctx.globalAlpha = 1;
+
+  // título, palavra por palavra (o nome da criança em dourado)
+  const words = job.title.split(/\s+/).filter(Boolean);
+  const nameToks = (job.childName || "").split(/\s+/).map(norm).filter(Boolean);
+  let size = portrait ? 76 : 84;
+  const maxW = W - 150;
+  ctx.font = `700 ${size}px ${SANS}`;
+  const sp = () => ctx.measureText(" ").width;
+  const total = () => words.reduce((a, w) => a + ctx.measureText(w).width, 0) + sp() * (words.length - 1);
+  while (total() > maxW * (portrait ? 2 : 1) && size > 48) {
+    size -= 4;
+    ctx.font = `700 ${size}px ${SANS}`;
+  }
+  const lines = wrapLines(ctx, words, maxW);
+  const lh = size * 1.12;
+  let ty = (portrait ? 270 : 165) - ((lines.length - 1) * lh) / 2 + (lines.length > 1 ? 0 : 0);
+  ctx.textAlign = "left";
+  for (const line of lines) {
+    const widths = line.map((i) => ctx.measureText(words[i]).width);
+    let x = (W - (widths.reduce((a, b) => a + b, 0) + sp() * (line.length - 1))) / 2;
+    line.forEach((i, n) => {
+      const a = ease((t - (0.8 + 0.32 * i)) / 0.45);
+      if (a > 0) {
+        ctx.globalAlpha = a;
+        ctx.fillStyle = nameToks.includes(norm(words[i])) ? "#ffd479" : "#fff";
+        ctx.fillText(words[i], x, ty + (1 - a) * 30);
+      }
+      x += widths[n] + sp();
+    });
+    ty += lh;
+  }
+  ctx.globalAlpha = 1;
+
+  // subtítulo e dedicatória
+  const tEnd = 0.8 + 0.32 * words.length + 0.2;
+  const sub = `${job.age} ${job.age === 1 ? "aninho" : "aninhos"}${job.birth ? ` · ${prettyDate(job.birth)}` : ""}`;
+  ctx.textAlign = "center";
+  ctx.globalAlpha = ease((t - tEnd) / 0.6);
+  ctx.fillStyle = "#fff";
+  ctx.font = `600 ${portrait ? 40 : 36}px ${SANS}`;
+  ctx.fillText(sub, W / 2, H - (portrait ? 190 : 150) + (1 - ease((t - tEnd) / 0.6)) * 16);
+  if (job.parents) {
+    ctx.globalAlpha = ease((t - tEnd - 0.7) / 0.6);
+    ctx.fillStyle = "rgba(255,255,255,.92)";
+    ctx.font = `500 ${portrait ? 30 : 28}px ${SANS}`;
+    ctx.fillText(`com todo o amor de ${job.parents}`, W / 2, H - (portrait ? 140 : 105) + (1 - ease((t - tEnd - 0.7) / 0.6)) * 16);
+  }
+  ctx.globalAlpha = 1;
+  ctx.shadowColor = "transparent";
+}
+
 function drawImageFull(ctx: any, mk: MakeCanvas, gallery: any[], st: State) {
   const G = gallery.length;
   const layer = (img: any, alpha: number) => {
@@ -340,7 +479,8 @@ function drawSub(ctx: any, st: State, accent: string) {
 export function drawFrame(ctx: any, mk: MakeCanvas, imgs: any[], job: Job, tm: Timing, T: number) {
   const gallery = imgs.filter(Boolean);
   const st = stateAt(job, tm, T);
-  if (!gallery.length || st.phase === "cover") return drawBook(ctx, mk, gallery[0], job, false, T);
+  if (!gallery.length) return drawBook(ctx, mk, undefined, job, st.phase === "end", T);
+  if (st.phase === "cover") return drawCover(ctx, mk, gallery[0], job, T);
   if (st.phase === "end") return drawBook(ctx, mk, gallery[0], job, true, T);
   drawImageFull(ctx, mk, gallery, st);
   drawSub(ctx, st, "#ffe3a3");

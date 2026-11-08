@@ -3,9 +3,10 @@
 import { Clapperboard, Download, Images, Maximize2, Minimize2, Pause, Play, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { downloadAll } from "@/lib/download";
+import { CoverCanvas } from "./CoverCanvas";
 import { buildJob } from "@/lib/render/job";
 import { createVideo } from "@/lib/render/client";
-import { layout, stateAt } from "@/lib/render/scene";
+import { COVER_SEC, layout, stateAt } from "@/lib/render/scene";
 import type { Answers, Result } from "@/lib/types";
 
 const GOLD = "#d9b36a";
@@ -47,7 +48,10 @@ export function Cinema({ result, answers, onRestart, headers }: { result: Result
   /* ---------- áudio ---------- */
   const narr = useRef<HTMLAudioElement>(null);
   const music = useRef<HTMLAudioElement>(null);
-  const [phase, setPhase] = useState<"cover" | "story" | "finale" | "end">("cover");
+  const [phase, setPhase] = useState<"cover" | "intro" | "story" | "finale" | "end">("cover");
+  const [introStart, setIntroStart] = useState<number | null>(null);
+  const introTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (introTimer.current) clearTimeout(introTimer.current); }, []);
   const [narrNow, setNarrNow] = useState(0);
   const [musicT, setMusicT] = useState(0);
   const [narrDur, setNarrDur] = useState(0);
@@ -57,7 +61,7 @@ export function Cinema({ result, answers, onRestart, headers }: { result: Result
 
   const tm = useMemo(() => ({ narrDur: narrDur || 0.1, musicDur: musicDur || 8 }), [narrDur, musicDur]);
   const L = layout(tm);
-  const T = phase === "cover" ? 0 : phase === "story" ? L.narrAt + narrNow : phase === "finale" ? L.finaleAt + musicT : L.endAt + 1;
+  const T = phase === "cover" || phase === "intro" ? 0 : phase === "story" ? L.narrAt + narrNow : phase === "finale" ? L.finaleAt + musicT : L.endAt + 1;
   const st = stateAt(job, tm, T);
 
   // O navegador só avisa o tempo do áudio ~4 vezes por segundo; para a palavra acender na hora certa, lê a cada quadro.
@@ -93,15 +97,25 @@ export function Cinema({ result, answers, onRestart, headers }: { result: Result
     setMusicT(0);
     const el = narr.current;
     if (el) {
-      setPhase("story");
-      el.currentTime = 0;
-      el.play().catch(() => {});
+      // A narração também é "destravada" no toque; ela só começa depois da abertura animada da capa.
+      el.muted = true;
+      el.play().then(() => { el.pause(); el.currentTime = 0; el.muted = false; }).catch(() => { el.muted = false; });
+      setPhase("intro");
+      setIntroStart(performance.now());
+      if (introTimer.current) clearTimeout(introTimer.current);
+      introTimer.current = setTimeout(() => {
+        setPhase("story");
+        el.muted = false;
+        el.currentTime = 0;
+        el.play().catch(() => {});
+      }, COVER_SEC * 1000);
     } else {
       startFinale();
     }
   };
 
   const playPause = () => {
+    if (phase === "intro") return;
     if (phase === "cover" || phase === "end") return start();
     const a = phase === "story" ? narr.current : music.current;
     if (!a) return;
@@ -273,7 +287,10 @@ export function Cinema({ result, answers, onRestart, headers }: { result: Result
     </div>
   );
 
-  const stage = phase === "cover" || !gallery.length ? book(false) : phase === "end" ? book(true) : full;
+  const coverStage = (
+    <CoverCanvas job={job} src={gallery[0]} W={W} H={H} introStart={phase === "intro" ? introStart : null} />
+  );
+  const stage = !gallery.length ? book(phase === "end") : phase === "cover" || phase === "intro" ? coverStage : phase === "end" ? book(true) : full;
 
   return (
     <div ref={rootRef} className="fixed inset-0 z-[100] overflow-hidden" style={{ background: "#0b0805" }}>
@@ -286,13 +303,13 @@ export function Cinema({ result, answers, onRestart, headers }: { result: Result
         <button type="button" onClick={playPause} className="liquid-glass-selected flex items-center gap-2 rounded-full px-5 py-2.5">
           <span className="relative z-10 flex items-center gap-2">
             {phase === "end" ? <RotateCcw size={16} /> : playing ? <Pause size={16} /> : <Play size={16} />}
-            {phase === "cover" ? "Ouvir a história" : phase === "end" ? "Ver de novo" : playing ? "Pausar" : "Continuar"}
+            {phase === "intro" ? "Começando…" : phase === "cover" ? "Ouvir a história" : phase === "end" ? "Ver de novo" : playing ? "Pausar" : "Continuar"}
           </span>
         </button>
         <button type="button" onClick={toggleFs} aria-label="Tela cheia" className="liquid-glass rounded-full p-2.5">
           <span className="relative z-10">{isFs ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</span>
         </button>
-        {phase !== "cover" && shareFiles.length && vStage !== "pronto" ? (
+        {phase !== "cover" && phase !== "intro" && shareFiles.length && vStage !== "pronto" ? (
           <button type="button" onClick={makeVideo} disabled={vStage === "enviando" || vStage === "montando"} className="liquid-glass-selected flex items-center gap-2 rounded-full px-4 py-2.5 disabled:opacity-70">
             <span className="relative z-10 flex items-center gap-2">
               <Clapperboard size={16} />
@@ -305,12 +322,12 @@ export function Cinema({ result, answers, onRestart, headers }: { result: Result
             <span className="relative z-10 flex items-center gap-2"><Clapperboard size={16} />Salvar vídeo</span>
           </button>
         ) : null}
-        {phase !== "cover" && canShare ? (
+        {phase !== "cover" && phase !== "intro" && canShare ? (
           <button type="button" onClick={saveToGallery} className="liquid-glass flex items-center gap-2 rounded-full px-4 py-2.5">
             <span className="relative z-10 flex items-center gap-2"><Images size={16} />Salvar imagens</span>
           </button>
         ) : null}
-        {phase !== "cover" ? (
+        {phase !== "cover" && phase !== "intro" ? (
           <button type="button" onClick={doDownload} disabled={zipping} className="liquid-glass flex items-center gap-2 rounded-full px-4 py-2.5 disabled:opacity-60">
             <span className="relative z-10 flex items-center gap-2"><Download size={16} />{zipping ? "Preparando…" : canShare ? "Arquivos (zip)" : "Baixar tudo"}</span>
           </button>

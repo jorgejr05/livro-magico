@@ -11,6 +11,8 @@ export function buildJob(result: Result, answers: Answers, G: number): Job {
   const job: Job = {
     title: story.titulo,
     childName: answers.childName,
+    parents: (answers.parents || "").trim().slice(0, 80),
+    birth: answers.birth || "",
     age: Number(answers.age) || 0,
     theme: { from: theme.colors.from, to: theme.colors.to, accent: theme.colors.accent },
     pages: story.paginas.map((p, i) => {
