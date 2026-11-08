@@ -1,8 +1,7 @@
 "use client";
 
-import { Clapperboard, Download, Images, Maximize2, Minimize2, Pause, Play, RotateCcw } from "lucide-react";
+import { Clapperboard, Images, Loader2, Maximize2, Minimize2, Pause, Play, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { downloadAll } from "@/lib/download";
 import { CoverCanvas } from "./CoverCanvas";
 import { buildJob } from "@/lib/render/job";
 import { createVideo } from "@/lib/render/client";
@@ -125,7 +124,6 @@ export function Cinema({ result, answers, onRestart, headers }: { result: Result
   const playing = phase === "story" ? narrPlaying : phase === "finale" ? musicPlaying : false;
 
   /* ---------- salvar ---------- */
-  const [zipping, setZipping] = useState(false);
   const [shareFiles, setShareFiles] = useState<File[]>([]);
   const [canShare, setCanShare] = useState(false);
   useEffect(() => {
@@ -154,20 +152,25 @@ export function Cinema({ result, answers, onRestart, headers }: { result: Result
     return () => { dead = true; };
   }, [gallery, story.titulo]);
 
-  const doDownload = async () => {
-    setZipping(true);
-    try {
-      await downloadAll(result);
-    } finally {
-      setZipping(false);
-    }
-  };
+  // Celular: abre o menu "Salvar imagens" (vai para a galeria). Computador: baixa cada imagem como arquivo.
   const saveToGallery = async () => {
-    try {
-      await navigator.share({ files: shareFiles, title: story.titulo });
-    } catch {
-      /* fechou o menu */
+    if (canShare) {
+      try {
+        await navigator.share({ files: shareFiles, title: story.titulo });
+      } catch {
+        /* fechou o menu */
+      }
+      return;
     }
+    shareFiles.forEach((f, i) =>
+      setTimeout(() => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(f);
+        a.download = f.name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      }, i * 350),
+    );
   };
 
   const [vStage, setVStage] = useState<"idle" | "enviando" | "montando" | "pronto" | "erro">("idle");
@@ -189,6 +192,14 @@ export function Cinema({ result, answers, onRestart, headers }: { result: Result
       setVStage("erro");
     }
   };
+  const videoStarted = useRef(false);
+  useEffect(() => {
+    if (shareFiles.length && !videoStarted.current) {
+      videoStarted.current = true;
+      makeVideo();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shareFiles]);
   const saveVideo = async () => {
     if (vFile && navigator.canShare?.({ files: [vFile] })) {
       try {
@@ -309,41 +320,36 @@ export function Cinema({ result, answers, onRestart, headers }: { result: Result
         <button type="button" onClick={toggleFs} aria-label="Tela cheia" className="liquid-glass rounded-full p-2.5">
           <span className="relative z-10">{isFs ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</span>
         </button>
-        {phase !== "cover" && phase !== "intro" && shareFiles.length && vStage !== "pronto" ? (
-          <button type="button" onClick={makeVideo} disabled={vStage === "enviando" || vStage === "montando"} className="liquid-glass-selected flex items-center gap-2 rounded-full px-4 py-2.5 disabled:opacity-70">
-            <span className="relative z-10 flex items-center gap-2">
-              <Clapperboard size={16} />
-              {vStage === "enviando" ? "Enviando…" : vStage === "montando" ? "Montando o vídeo…" : vStage === "erro" ? "Tentar o vídeo de novo" : "Criar vídeo"}
-            </span>
-          </button>
-        ) : null}
-        {vStage === "pronto" ? (
-          <button type="button" onClick={saveVideo} className="liquid-glass-selected flex items-center gap-2 rounded-full px-4 py-2.5">
-            <span className="relative z-10 flex items-center gap-2"><Clapperboard size={16} />Salvar vídeo</span>
-          </button>
-        ) : null}
-        {phase !== "cover" && phase !== "intro" && canShare ? (
-          <button type="button" onClick={saveToGallery} className="liquid-glass flex items-center gap-2 rounded-full px-4 py-2.5">
-            <span className="relative z-10 flex items-center gap-2"><Images size={16} />Salvar imagens</span>
-          </button>
-        ) : null}
-        {phase !== "cover" && phase !== "intro" ? (
-          <button type="button" onClick={doDownload} disabled={zipping} className="liquid-glass flex items-center gap-2 rounded-full px-4 py-2.5 disabled:opacity-60">
-            <span className="relative z-10 flex items-center gap-2"><Download size={16} />{zipping ? "Preparando…" : canShare ? "Arquivos (zip)" : "Baixar tudo"}</span>
-          </button>
-        ) : null}
         {phase === "end" ? (
-          <button type="button" onClick={onRestart} className="liquid-glass rounded-full px-4 py-2.5">
-            <span className="relative z-10">Criar outro livro</span>
-          </button>
+          <>
+            {vStage === "pronto" ? (
+              <button type="button" onClick={saveVideo} className="liquid-glass-selected flex items-center gap-2 rounded-full px-5 py-2.5">
+                <span className="relative z-10 flex items-center gap-2"><Clapperboard size={16} />Salvar vídeo</span>
+              </button>
+            ) : vStage === "erro" ? (
+              <button type="button" onClick={makeVideo} className="liquid-glass-selected flex items-center gap-2 rounded-full px-5 py-2.5">
+                <span className="relative z-10 flex items-center gap-2"><Clapperboard size={16} />Tentar o vídeo de novo</span>
+              </button>
+            ) : (
+              <button type="button" disabled className="liquid-glass flex items-center gap-2 rounded-full px-5 py-2.5 opacity-80">
+                <span className="relative z-10 flex items-center gap-2"><Loader2 size={16} className="animate-spin" />Preparando o vídeo…</span>
+              </button>
+            )}
+            <button type="button" onClick={saveToGallery} disabled={!shareFiles.length} className="liquid-glass-selected flex items-center gap-2 rounded-full px-5 py-2.5 disabled:opacity-60">
+              <span className="relative z-10 flex items-center gap-2"><Images size={16} />Salvar imagens</span>
+            </button>
+            <button type="button" onClick={onRestart} className="liquid-glass rounded-full px-4 py-2.5">
+              <span className="relative z-10">Criar outro livro</span>
+            </button>
+          </>
         ) : null}
       </div>
 
-      {vStage === "montando" || vStage === "enviando" ? (
+      {phase === "end" && (vStage === "montando" || vStage === "enviando") ? (
         <p className="absolute inset-x-0 bottom-20 z-10 mx-auto max-w-md px-4 text-center text-xs text-white/80">
-          Estamos montando o seu vídeo (leva 1 a 3 minutos). Pode continuar assistindo; mantenha esta página aberta.
+          Estamos montando o vídeo com a narração e a música. Leva alguns minutos; mantenha esta página aberta.
         </p>
-      ) : vStage === "erro" ? (
+      ) : phase === "end" && vStage === "erro" ? (
         <p className="absolute inset-x-0 bottom-20 z-10 mx-auto max-w-md px-4 text-center text-xs text-white/80">
           Não conseguimos montar o vídeo agora. Tente de novo; as imagens continuam disponíveis para salvar.
         </p>
