@@ -54,6 +54,7 @@ export function Wizard() {
   const [fatal, setFatal] = useState("");
   const started = useRef(false);
   const followupUsage = useRef<unknown>(null);
+  const followupDetail = useRef<unknown>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const set = <K extends keyof Answers>(k: K, v: Answers[K]) => setA((p) => ({ ...p, [k]: v }));
@@ -133,6 +134,7 @@ export function Wizard() {
       const r = await fetch("/api/luna/followup", { method: "POST", headers: headers(), body: JSON.stringify({ answers: a }) });
       followupUsage.current = readUsage(r);
       const d = await r.json();
+      followupDetail.current = d.debug ?? null;
       set("lunaQuestion", r.ok && d.pergunta ? d.pergunta : FALLBACK_QUESTION);
     } catch {
       set("lunaQuestion", FALLBACK_QUESTION);
@@ -159,6 +161,7 @@ export function Wizard() {
   /* ---------- geração completa ---------- */
   const generate = useCallback(async () => {
     const usages: Record<string, unknown> = {};
+    const details: Record<string, unknown> = {};
     const eleven = async () => {
       try {
         const r = await fetch("/api/usage/eleven", { headers: headers(), cache: "no-store" });
@@ -170,9 +173,9 @@ export function Wizard() {
     const elevenBefore = await eleven();
     const errors: string[] = [];
     const t0 = Date.now();
-    const events: { step: string; ok: boolean; ms: number; error?: string; usage?: unknown }[] = [];
+    const events: { step: string; ok: boolean; ms: number; error?: string; usage?: unknown; detail?: unknown }[] = [];
     const ev = (step: string, ok: boolean, since: number, error?: string) =>
-      events.push({ step, ok, ms: Date.now() - since, error, usage: usages[step] });
+      events.push({ step, ok, ms: Date.now() - since, error, usage: usages[step], detail: details[step] });
     let orderId: string | null = null;
     try {
       const r = await fetch("/api/orders/start", { method: "POST", headers: headers(), body: JSON.stringify({ answers: a, photoCount: photos.length }) });
@@ -181,7 +184,7 @@ export function Wizard() {
     const finish = async (status: string, story: Story | null) => {
       if (!orderId) return;
       const elevenAfter = await eleven();
-      if (followupUsage.current) events.push({ step: "followup", ok: true, ms: 0, usage: followupUsage.current });
+      if (followupUsage.current) events.push({ step: "followup", ok: true, ms: 0, usage: followupUsage.current, detail: followupDetail.current });
       try {
         await fetch("/api/orders/finish", {
           method: "POST",
@@ -203,7 +206,9 @@ export function Wizard() {
     try {
       const tStory = Date.now();
       const sr = await post("/api/luna/story", { answers: a, photoCount: photos.length }, "story");
-      const { story } = (await sr.json()) as { story: Story };
+      const sj = (await sr.json()) as { story: Story; debug?: unknown };
+      const { story } = sj;
+      details.story = sj.debug;
       ev("story", true, tStory);
       setProgress((p) => ({ ...p, story: true }));
 
@@ -223,7 +228,9 @@ export function Wizard() {
                 customTheme: a.customTheme,
                 consent: a.consent,
               }, `image_${i + 1}`);
-              images[i] = (await r.json()).image as string;
+              const ij = await r.json();
+              images[i] = ij.image as string;
+              details[`image_${i + 1}`] = ij.debug;
               ev(`image_${i + 1}`, true, tImg);
             } catch (e) {
               errors.push(`Imagem ${i + 1}: ${(e as Error).message}`);
@@ -249,6 +256,7 @@ export function Wizard() {
         try {
           const r = await post("/api/generate/narration", { pages: story.paginas.map((p) => p.fala || p.texto) }, "narration");
           const j = await r.json();
+          details.narration = j.debug;
           narrTimes = j.pages;
           const out = b64ToUrl(j.audio);
           ev("narration", true, t);
@@ -267,6 +275,9 @@ export function Wizard() {
         try {
           const r = await post("/api/generate/music", { letra: story.letra, estilo: story.estilo_musical }, "music");
           const blob = await r.blob();
+          try {
+            details.music = { prompt: decodeURIComponent(r.headers.get("x-prompt") || ""), letra: story.letra, estilo: story.estilo_musical };
+          } catch {}
           const out = URL.createObjectURL(blob);
           // Tempo real dos versos: se falhar, o livro usa a estimativa.
           try {

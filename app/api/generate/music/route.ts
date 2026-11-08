@@ -28,7 +28,7 @@ export async function POST(req: Request) {
       requested_ms: 90000,
       prompt_chars: prompt.length,
       headers: billingHeaders(res),
-    }, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" } });
+    }, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store", "x-prompt": encodeURIComponent(prompt).slice(0, 4000) } });
   } catch (e) {
     return fail(e);
   }

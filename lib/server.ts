@@ -29,8 +29,9 @@ export function billingHeaders(res: Response): Record<string, string> {
 export function withUsage(body: BodyInit | null, usage: unknown, init: ResponseInit & { headers?: Record<string, string> } = {}): Response {
   return new Response(body, { ...init, headers: { ...(init.headers || {}), "x-usage": JSON.stringify(usage).slice(0, 3500) } });
 }
-export function jsonUsage(data: unknown, usage: unknown, status = 200): Response {
-  return withUsage(JSON.stringify(data), usage, { status, headers: { "Content-Type": "application/json" } });
+// `debug` (prompts, entradas e saídas brutas) viaja no corpo, não no cabeçalho, e o app grava por etapa.
+export function jsonUsage(data: Record<string, unknown>, usage: unknown, debug?: unknown, status = 200): Response {
+  return withUsage(JSON.stringify(debug === undefined ? data : { ...data, debug }), usage, { status, headers: { "Content-Type": "application/json" } });
 }
 
 export async function luna(system: string, user: string): Promise<{ out: any; usage: any }> {

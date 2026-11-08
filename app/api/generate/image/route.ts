@@ -30,6 +30,7 @@ export async function POST(req: Request) {
       });
     };
     const base = imagePrompt(String(themeId || ""), String(customTheme || ""), scene);
+    const prompts: string[] = [base];
     let attempts = 1;
     let res = await call(base);
     if (res.status === 400) {
@@ -37,7 +38,9 @@ export async function POST(req: Request) {
       const body = await res.text();
       if (!/moderation|safety/i.test(body)) throw new Error(`Sunburst falhou (400): ${body.slice(0, 300)}`);
       attempts = 2;
-      res = await call(`${base} Framing: gentle portrait from the chest up, child wearing a cozy long-sleeved outfit and a themed hat or accessory, wholesome family-friendly children's book illustration.`);
+      const safer = `${base} Framing: gentle portrait from the chest up, child wearing a cozy long-sleeved outfit and a themed hat or accessory, wholesome family-friendly children's book illustration.`;
+      prompts.push(safer);
+      res = await call(safer);
       if (res.status === 400) throw new Error("MODERATION: a foto foi recusada pelo filtro de segurança.");
     }
     if (!res.ok) throw new Error(`Sunburst falhou (${res.status}): ${(await res.text()).slice(0, 300)}`);
@@ -55,7 +58,7 @@ export async function POST(req: Request) {
       output_tokens: u.output_tokens ?? null,
       total_tokens: u.total_tokens ?? null,
       photo_bytes: photoBlob.size,
-    });
+    }, { prompts, scene, themeId, customTheme });
   } catch (e) {
     return fail(e);
   }

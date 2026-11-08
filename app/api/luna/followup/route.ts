@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     if (!answers?.childName) return fail(new Error("Dados incompletos."), 400);
     const { out, usage } = await luna(FOLLOWUP_SYSTEM, profileText(answers));
     const pergunta = typeof out?.pergunta === "string" ? out.pergunta.slice(0, 200) : "";
-    return jsonUsage({ pergunta }, usage);
+    return jsonUsage({ pergunta }, usage, { system: FOLLOWUP_SYSTEM, user: profileText(answers), output: out });
   } catch (e) {
     return fail(e);
   }

@@ -85,7 +85,7 @@ export async function POST(req: Request) {
       chars_with_tags: full.length,
       audio_seconds: al.character_end_times_seconds[al.character_end_times_seconds.length - 1] ?? null,
       headers: billingHeaders(res),
-    });
+    }, { voice, model: used, text_sent: sent });
   } catch (e) {
     return fail(e);
   }

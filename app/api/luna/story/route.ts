@@ -46,7 +46,7 @@ export async function POST(req: Request) {
         subtitulo: s(raw?.cartao_final?.subtitulo, 100) || `${answers.age} aninhos de amor e coragem`,
       },
     };
-    return jsonUsage({ story }, usage);
+    return jsonUsage({ story }, usage, { system: storySystem(n), user: profileText(answers), raw_output: raw });
   } catch (e) {
     return fail(e);
   }
