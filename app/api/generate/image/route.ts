@@ -1,5 +1,6 @@
-import { checkAccess, dataUrlToBlob, fail, jsonUsage, need } from "@/lib/server";
+import { checkAccess, fail, jsonUsage, need } from "@/lib/server";
 import { imagePrompt } from "@/lib/prompts";
+import { loadAsset, requirePaid, saveAsset } from "@/lib/books";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -9,17 +10,19 @@ export async function POST(req: Request) {
   const denied = checkAccess(req);
   if (denied) return denied;
   try {
-    const { photo, scene, themeId, customTheme, consent } = await req.json();
-    if (!consent) return fail(new Error("Consentimento dos responsáveis ausente."), 400);
-    if (typeof photo !== "string" || typeof scene !== "string") return fail(new Error("Dados inválidos."), 400);
-
-    const photoBlob = dataUrlToBlob(photo);
+    const { book, idx, fmt, photoIdx, scene, themeId, customTheme } = await req.json();
+    await requirePaid(book); // só livro pago gera imagem (o consentimento já foi exigido ao criar o livro)
+    if (typeof scene !== "string" || !Number.isInteger(idx) || !Number.isInteger(photoIdx) || (fmt !== "l" && fmt !== "p")) return fail(new Error("Dados inválidos."), 400);
+    const pr = await loadAsset(book, `photo${photoIdx}.jpg`);
+    if (!pr) return fail(new Error("Foto não encontrada."), 404);
+    const photoBlob = new Blob([await pr.arrayBuffer()], { type: "image/jpeg" });
+    const size = fmt === "p" ? "1024x1536" : "1536x1024"; // 9:16 (celular) e 16:9 (TV/PC) aproximados; a tela recorta o excedente
     const call = (prompt: string) => {
       const form = new FormData();
       form.append("model", process.env.SUNBURST_MODEL || "gpt-image-2.5-sunburst");
       form.append("image", photoBlob, "foto.jpg");
       form.append("prompt", prompt);
-      form.append("size", "1024x1024");
+      form.append("size", size);
       form.append("quality", "medium");
       form.append("output_format", "webp");
       form.append("n", "1");
@@ -48,7 +51,9 @@ export async function POST(req: Request) {
     const b64 = data?.data?.[0]?.b64_json;
     if (!b64) throw new Error("O gerador de imagens não devolveu imagem.");
     const u = data?.usage || {};
-    return jsonUsage({ image: `data:image/webp;base64,${b64}` }, {
+    const name = `img_${fmt}${idx}.webp`;
+    await saveAsset(book, name, Buffer.from(b64, "base64"));
+    return jsonUsage({ ok: true, name }, {
       provider: "openai-image",
       model: process.env.SUNBURST_MODEL || "gpt-image-2.5-sunburst",
       attempts, // 2 = a primeira foi recusada pela moderação e refeita
@@ -58,7 +63,8 @@ export async function POST(req: Request) {
       output_tokens: u.output_tokens ?? null,
       total_tokens: u.total_tokens ?? null,
       photo_bytes: photoBlob.size,
-    }, { prompts, scene, themeId, customTheme });
+      size,
+    }, { prompts, scene, themeId, customTheme, size });
   } catch (e) {
     return fail(e);
   }

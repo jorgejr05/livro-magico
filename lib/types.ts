@@ -28,7 +28,8 @@ export type Story = {
 
 export type Result = {
   story: Story;
-  images: (string | null)[];
+  images: (string | null)[]; // formato horizontal (16:9, TV/PC)
+  imagesP?: (string | null)[]; // formato vertical (9:16, celular)
   narrationUrl: string | null;
   musicUrl: string | null;
   // tempos reais (segundos): palavras de cada página da narração e início de cada verso da música

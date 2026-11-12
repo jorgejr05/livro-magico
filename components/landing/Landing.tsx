@@ -40,6 +40,7 @@ function Nav() {
           <a href="#exemplo" className="hover:text-white">Exemplo</a>
           {SHOW_PRICING ? <a href="#planos" className="hover:text-white">Planos</a> : null}
           <a href="#duvidas" className="hover:text-white">Dúvidas</a>
+          <Link href="/meus-livros" className="hover:text-white">Meus livros</Link>
         </div>
         <Link href="/criar" className="rounded-full bg-white px-4 py-2 text-xs font-bold text-[#0b0a1a] transition hover:bg-amber-200 sm:text-sm">Criar meu livro</Link>
       </nav>
@@ -49,7 +50,7 @@ function Nav() {
 
 /* ---------- como funciona ---------- */
 const STEPS = [
-  { icon: Camera, title: "Conte e envie", text: "Nome, idade, o que ele(a) ama e até 10 fotos. Sem cadastro." },
+  { icon: Camera, title: "Conte e envie", text: "Nome, idade, o que ele(a) ama e até 10 fotos. Você paga por Pix e acompanha tudo pelo WhatsApp que informar." },
   { icon: Wand2, title: "A Luna escreve", text: "Nossa roteirista cria uma história só dele(a), com a sua família dentro." },
   { icon: Images, title: "Imagens mágicas", text: "Seu filho vira o protagonista de ilustrações no tema que escolher." },
   { icon: Mic, title: "Voz e música", text: "Narração cheia de emoção e uma música de parabéns exclusiva." },

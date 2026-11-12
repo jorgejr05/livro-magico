@@ -1,4 +1,5 @@
 import { billingHeaders, checkAccess, fail, jsonUsage, need } from "@/lib/server";
+import { requirePaid, saveAsset } from "@/lib/books";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -10,7 +11,8 @@ export async function POST(req: Request) {
   const denied = checkAccess(req);
   if (denied) return denied;
   try {
-    const { pages } = await req.json();
+    const { pages, book } = await req.json();
+    await requirePaid(book);
     if (!Array.isArray(pages) || pages.length < 1 || pages.length > 20) return fail(new Error("Páginas inválidas."), 400);
     const texts: string[] = pages.map((p: unknown) => String(p).trim());
     const SEP = "\n\n";
@@ -78,7 +80,9 @@ export async function POST(req: Request) {
       pageOffset += t.length + SEP.length;
       return { start: Math.max(0, pageStart), end: pageEnd, words };
     });
-    return jsonUsage({ audio: data.audio_base64, pages: out }, {
+    await saveAsset(book, "narration.mp3", Buffer.from(data.audio_base64, "base64"));
+    await saveAsset(book, "narr.json", new TextEncoder().encode(JSON.stringify(out)));
+    return jsonUsage({ ok: true, pages: out }, {
       provider: "elevenlabs-tts",
       model: used,
       chars_sent: sent.length,

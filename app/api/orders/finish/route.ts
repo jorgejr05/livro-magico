@@ -19,7 +19,7 @@ export async function POST(req: Request) {
         status,
         story: story ?? null,
         errors: Array.isArray(errors) ? errors.slice(0, 20).map((x: unknown) => String(x).slice(0, 300)) : [],
-        events: Array.isArray(events) ? events.slice(0, 40) : [],
+        events: Array.isArray(events) ? events.slice(0, 60) : [],
         total_ms: Number.isFinite(totalMs) ? Math.round(totalMs) : null,
         usage: usage && typeof usage === "object" ? usage : null,
       },

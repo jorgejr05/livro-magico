@@ -1,4 +1,5 @@
 import { billingHeaders, checkAccess, fail, jsonUsage, need } from "@/lib/server";
+import { loadAsset, requirePaid, saveAsset } from "@/lib/books";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -11,10 +12,11 @@ export async function POST(req: Request) {
   const denied = checkAccess(req);
   if (denied) return denied;
   try {
-    const form = await req.formData();
-    const audio = form.get("audio");
-    const letra: string[] = JSON.parse(String(form.get("letra") || "[]"));
-    if (!(audio instanceof Blob) || !letra.length) return fail(new Error("Dados inválidos."), 400);
+    const { book, letra } = (await req.json()) as { book: string; letra: string[] };
+    await requirePaid(book);
+    const mr = await loadAsset(book, "music.mp3");
+    if (!mr || !Array.isArray(letra) || !letra.length) return fail(new Error("Dados inválidos."), 400);
+    const audio = new Blob([await mr.arrayBuffer()], { type: "audio/mpeg" });
 
     const fd = new FormData();
     fd.append("file", audio, "musica.mp3");
@@ -59,6 +61,7 @@ export async function POST(req: Request) {
     }
     // garante ordem crescente
     for (let i = 1; i < starts.length; i++) if (starts[i] < starts[i - 1]) starts[i] = starts[i - 1];
+    await saveAsset(book, "lyric.json", new TextEncoder().encode(JSON.stringify(starts)));
     return jsonUsage({ starts }, {
       provider: "elevenlabs-stt",
       model: "scribe_v1",

@@ -230,21 +230,25 @@ function rr(ctx: any, x: number, y: number, w: number, h: number, r: number) {
   ctx.closePath();
 }
 
-function drawBook(ctx: any, mk: MakeCanvas, img: any, job: Job, end: boolean, t: number) {
+function drawBook(ctx: any, mk: MakeCanvas, img: any, job: Job, end: boolean, t: number, W = DW, H = DH) {
   const th = job.theme;
-  const g = ctx.createRadialGradient(DW / 2, DH * 0.4, 50, DW / 2, DH * 0.4, DW * 0.75);
+  const portrait = H > W;
+  const g = ctx.createRadialGradient(W / 2, H * 0.4, 50, W / 2, H * 0.4, Math.max(W, H) * 0.75);
   g.addColorStop(0, th.from);
   g.addColorStop(1, th.to);
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, DW, DH);
+  ctx.fillRect(0, 0, W, H);
   if (img) {
     ctx.globalAlpha = 0.35;
-    ctx.drawImage(blurred(mk, img), 0, 0, DW, DH);
+    ctx.drawImage(blurred(mk, img), 0, 0, W, H);
     ctx.globalAlpha = 1;
   }
-  sparkles(ctx, th.accent, t, 22);
+  sparkles(ctx, th.accent, t, 22, W, H);
 
-  const bx = 390, by = 50, bw = 820, bh = 800;
+  const bw = portrait ? 780 : 820;
+  const bh = portrait ? 1240 : 800;
+  const bx = (W - bw) / 2;
+  const by = (H - bh) / 2;
   ctx.save();
   ctx.shadowColor = "rgba(0,0,0,.6)";
   ctx.shadowBlur = 70;
@@ -269,28 +273,29 @@ function drawBook(ctx: any, mk: MakeCanvas, img: any, job: Job, end: boolean, t:
   const cx = bx + bw / 2;
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = GOLD;
-  ctx.font = `500 20px ${SANS}`;
+  ctx.font = `500 ${portrait ? 24 : 20}px ${SANS}`;
   spaced(ctx, end ? "FIM  ·  COM MUITO AMOR" : `UM LIVRO DE AVENTURA PARA OS ${job.age} ANINHOS`, cx, by + 100, 6);
+  const side = portrait ? 560 : 390;
+  const iy = by + (portrait ? 160 : 135);
   if (img) {
-    const s = 390, iy = by + 135;
     ctx.fillStyle = GOLD;
-    ctx.fillRect(cx - s / 2 - 7, iy - 7, s + 14, s + 14);
-    coverDraw(ctx, img, cx - s / 2, iy, s, s);
+    ctx.fillRect(cx - side / 2 - 7, iy - 7, side + 14, side + 14);
+    coverDraw(ctx, img, cx - side / 2, iy, side, side);
   }
   ctx.textAlign = "center";
   ctx.fillStyle = "#f3d58f";
   const title = end ? job.cartao.titulo : job.title;
-  let size = 46;
+  let size = portrait ? 54 : 46;
   ctx.font = `700 ${size}px ${SANS}`;
   while (ctx.measureText(title).width > bw - 140 && size > 28) {
     size -= 3;
     ctx.font = `700 ${size}px ${SANS}`;
   }
-  ctx.fillText(title, cx, by + 640);
+  ctx.fillText(title, cx, iy + side + 115);
   if (end) {
     ctx.fillStyle = "rgba(255,255,255,.85)";
-    ctx.font = `500 24px ${SANS}`;
-    ctx.fillText(job.cartao.subtitulo, cx, by + 695);
+    ctx.font = `500 ${portrait ? 28 : 24}px ${SANS}`;
+    ctx.fillText(job.cartao.subtitulo, cx, iy + side + 170);
   }
 }
 
@@ -320,27 +325,16 @@ export function drawCover(ctx: any, mk: MakeCanvas, img: any, job: Job, t: numbe
     ctx.globalAlpha = 1;
     ctx.fillStyle = "rgba(0,0,0,.3)";
     ctx.fillRect(0, 0, W, H);
-    // imagem de capa: entra com fusão e um zoom suave que continua devagar
-    const s = portrait ? W : H;
-    const ix = (W - s) / 2;
-    const iy = portrait ? (H - s) / 2 + 70 : 0;
+    // imagem de capa em tela cheia: entra com fusão e um zoom suave que continua devagar
     const k = 1.12 - 0.1 * ease(t / 2.6) + 0.012 * Math.min(t, 12);
     ctx.save();
     ctx.globalAlpha = ease(t / 1.2);
     ctx.beginPath();
-    ctx.rect(ix, iy, s, s);
+    ctx.rect(0, 0, W, H);
     ctx.clip();
-    coverDraw(ctx, img, ix - (s * (k - 1)) / 2, iy - (s * (k - 1)) / 2, s * k, s * k);
+    coverDraw(ctx, img, -(W * (k - 1)) / 2, -(H * (k - 1)) / 2, W * k, H * k);
     ctx.restore();
     ctx.globalAlpha = 1;
-    // bordas da imagem se dissolvem no fundo desfocado
-    for (const [x0, x1, a0, a1] of [[ix, ix + s * 0.12, 0.55, 0], [ix + s * 0.88, ix + s, 0, 0.55]] as const) {
-      const eg = ctx.createLinearGradient(x0, 0, x1, 0);
-      eg.addColorStop(0, `rgba(0,0,0,${a0})`);
-      eg.addColorStop(1, `rgba(0,0,0,${a1})`);
-      ctx.fillStyle = eg;
-      ctx.fillRect(x0, iy, x1 - x0, s);
-    }
   }
   const top = ctx.createLinearGradient(0, 0, 0, H * 0.42);
   top.addColorStop(0, "rgba(0,0,0,.7)");
@@ -430,40 +424,42 @@ export function drawCover(ctx: any, mk: MakeCanvas, img: any, job: Job, t: numbe
   ctx.shadowColor = "transparent";
 }
 
-function drawImageFull(ctx: any, mk: MakeCanvas, gallery: any[], st: State) {
+function drawImageFull(ctx: any, mk: MakeCanvas, gallery: any[], st: State, W = DW, H = DH) {
   const G = gallery.length;
+  // a imagem já nasce no formato da tela (9:16 ou 16:9): ocupa tudo, sem faixas
   const layer = (img: any, alpha: number) => {
     ctx.globalAlpha = alpha;
-    ctx.drawImage(blurred(mk, img), 0, 0, DW, DH);
-    ctx.fillStyle = "rgba(0,0,0,.45)";
-    ctx.fillRect(0, 0, DW, DH);
-    coverDraw(ctx, img, (DW - DH) / 2, 0, DH, DH);
+    coverDraw(ctx, img, 0, 0, W, H);
     ctx.globalAlpha = 1;
   };
   if (st.mix < 1) layer(gallery[st.prev % G], 1);
   layer(gallery[st.cur % G], st.mix);
-  const g = ctx.createLinearGradient(0, DH * 0.62, 0, DH);
+  const portrait = H > W;
+  const from = portrait ? 0.62 : 0.62;
+  const g = ctx.createLinearGradient(0, H * from, 0, H);
   g.addColorStop(0, "rgba(0,0,0,0)");
-  g.addColorStop(1, "rgba(0,0,0,.72)");
+  g.addColorStop(1, "rgba(0,0,0,.78)");
   ctx.fillStyle = g;
-  ctx.fillRect(0, DH * 0.62, DW, DH * 0.38);
+  ctx.fillRect(0, H * from, W, H * (1 - from));
 }
 
-function drawSub(ctx: any, st: State, accent: string) {
+function drawSub(ctx: any, st: State, accent: string, W = DW, H = DH) {
   if (!st.sub || !st.sub.length) return;
-  ctx.font = `700 46px ${SANS}`;
+  const portrait = H > W;
+  const fs = portrait ? 54 : 46;
+  const lh = portrait ? 74 : 66;
+  ctx.font = `700 ${fs}px ${SANS}`;
   ctx.textBaseline = "alphabetic";
   const words = st.sub.map((x) => x.w);
-  const lines = wrapLines(ctx, words, 1280);
+  const lines = wrapLines(ctx, words, portrait ? W - 130 : 1280);
   const space = ctx.measureText(" ").width;
-  const lh = 66;
-  let y = DH - 60 - (lines.length - 1) * lh;
+  let y = H - (portrait ? 170 : 60) - (lines.length - 1) * lh;
   ctx.shadowColor = "rgba(0,0,0,.85)";
   ctx.shadowBlur = 14;
   ctx.textAlign = "left";
   for (const line of lines) {
     const widths = line.map((i) => ctx.measureText(words[i]).width);
-    let x = (DW - (widths.reduce((a, b) => a + b, 0) + space * (line.length - 1))) / 2;
+    let x = (W - (widths.reduce((a, b) => a + b, 0) + space * (line.length - 1))) / 2;
     line.forEach((i, n) => {
       if (st.sub![i].on) {
         ctx.fillStyle = st.sub![i].cur ? accent : "#fff";
@@ -476,12 +472,13 @@ function drawSub(ctx: any, st: State, accent: string) {
   ctx.shadowColor = "transparent";
 }
 
-export function drawFrame(ctx: any, mk: MakeCanvas, imgs: any[], job: Job, tm: Timing, T: number) {
+/** Desenha o quadro do instante T no formato W×H (16:9 = 1600×900, 9:16 = 900×1600). */
+export function drawFrame(ctx: any, mk: MakeCanvas, imgs: any[], job: Job, tm: Timing, T: number, W = DW, H = DH) {
   const gallery = imgs.filter(Boolean);
   const st = stateAt(job, tm, T);
-  if (!gallery.length) return drawBook(ctx, mk, undefined, job, st.phase === "end", T);
-  if (st.phase === "cover") return drawCover(ctx, mk, gallery[0], job, T);
-  if (st.phase === "end") return drawBook(ctx, mk, gallery[0], job, true, T);
-  drawImageFull(ctx, mk, gallery, st);
-  drawSub(ctx, st, "#ffe3a3");
+  if (!gallery.length) return drawBook(ctx, mk, undefined, job, st.phase === "end", T, W, H);
+  if (st.phase === "cover") return drawCover(ctx, mk, gallery[0], job, T, W, H);
+  if (st.phase === "end") return drawBook(ctx, mk, gallery[0], job, true, T, W, H);
+  drawImageFull(ctx, mk, gallery, st, W, H);
+  drawSub(ctx, st, "#ffe3a3", W, H);
 }

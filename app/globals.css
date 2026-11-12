@@ -245,3 +245,7 @@ body {
   background-size: 200% auto;
   animation: shine 6s linear infinite;
 }
+
+/* Poppins também no navegador: o player em canvas desenha com a mesma fonte do vídeo MP4 */
+@font-face { font-family: "Poppins"; font-weight: 500; src: url("/fonts/Poppins-Medium.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "Poppins"; font-weight: 700; src: url("/fonts/Poppins-Bold.ttf") format("truetype"); font-display: swap; }

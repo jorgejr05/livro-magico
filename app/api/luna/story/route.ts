@@ -1,6 +1,7 @@
 import { checkAccess, fail, jsonUsage, luna } from "@/lib/server";
 import { profileText, storySystem } from "@/lib/prompts";
 import type { Answers, Story } from "@/lib/types";
+import { requirePaid, saveAsset } from "@/lib/books";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -11,7 +12,8 @@ export async function POST(req: Request) {
   const denied = checkAccess(req);
   if (denied) return denied;
   try {
-    const { answers, photoCount } = (await req.json()) as { answers: Answers; photoCount: number };
+    const { answers, photoCount, book } = (await req.json()) as { answers: Answers; photoCount: number; book: string };
+    await requirePaid(book);
     const n = Math.max(1, Math.min(10, Number(photoCount) || 1));
     if (!answers?.childName || !answers.consent) return fail(new Error("Dados ou consentimento ausentes."), 400);
 
@@ -46,6 +48,7 @@ export async function POST(req: Request) {
         subtitulo: s(raw?.cartao_final?.subtitulo, 100) || `${answers.age} aninhos de amor e coragem`,
       },
     };
+    await saveAsset(book, "story.json", new TextEncoder().encode(JSON.stringify(story)));
     return jsonUsage({ story }, usage, { system: storySystem(n), user: profileText(answers), raw_output: raw });
   } catch (e) {
     return fail(e);

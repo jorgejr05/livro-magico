@@ -2,10 +2,8 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { DH, DW, COVER_SEC, FPS, drawFrame, eventTimes, layout, type Job, type Timing } from "./scene";
+import { COVER_SEC, FPS, drawFrame, eventTimes, layout, type Job, type Timing } from "./scene";
 
-const OUT_W = 1280;
-const OUT_H = 720;
 
 function ffmpegBin(): string {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -37,7 +35,13 @@ export async function renderVideo(opts: {
   imageFiles: string[];
   narrationFile: string | null;
   musicFile: string | null;
+  format?: "h" | "v"; // h = 16:9 (TV/PC), v = 9:16 (celular)
 }): Promise<string> {
+  const vertical = opts.format === "v";
+  const OUT_W = vertical ? 720 : 1280;
+  const OUT_H = vertical ? 1280 : 720;
+  const DW = vertical ? 900 : 1600;
+  const DH = vertical ? 1600 : 900;
   const { createCanvas, loadImage, GlobalFonts } = await import("@napi-rs/canvas");
   const fonts = path.join(process.cwd(), "assets", "fonts");
   GlobalFonts.registerFromPath(path.join(fonts, "Poppins-Medium.ttf"), "Poppins");
@@ -73,7 +77,7 @@ export async function renderVideo(opts: {
     ctx.globalAlpha = 1;
     ctx.shadowColor = "transparent";
     ctx.textAlign = "left";
-    drawFrame(ctx, mk, imgs, job, tm, times[i]);
+    drawFrame(ctx, mk, imgs, job, tm, times[i], DW, DH);
     const name = `f${String(i).padStart(4, "0")}.jpg`;
     await writeFile(path.join(framesDir, name), canvas.toBuffer("image/jpeg", 88));
     const next = i + 1 < times.length ? times[i + 1] : total;

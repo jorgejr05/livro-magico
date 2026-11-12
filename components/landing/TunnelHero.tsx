@@ -95,7 +95,7 @@ export function TunnelHero() {
           <Link href="/criar" className="group mt-6 inline-flex items-center gap-3 rounded-full bg-gradient-to-b from-amber-300 to-amber-500 px-8 py-4 text-base font-bold text-amber-950 shadow-[0_10px_40px_-8px_rgba(251,191,36,.7)] transition hover:scale-[1.03]">
             Criar meu livro agora <ArrowRight size={18} className="transition group-hover:translate-x-1" />
           </Link>
-          <p className="mt-3 text-xs text-white/50">Sem cadastro · funciona no celular</p>
+          <p className="mt-3 text-xs text-white/50">R$ 29,90 por Pix · funciona no celular, PC e TV</p>
         </motion.div>
 
         <motion.div style={{ opacity: outroOpacity, scale: outroScale }} className="pointer-events-none absolute z-30 flex max-w-xl flex-col items-center px-6 text-center">

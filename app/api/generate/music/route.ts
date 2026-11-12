@@ -1,4 +1,5 @@
-import { billingHeaders, checkAccess, fail, need, withUsage } from "@/lib/server";
+import { billingHeaders, checkAccess, fail, jsonUsage, need } from "@/lib/server";
+import { requirePaid, saveAsset } from "@/lib/books";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -7,7 +8,8 @@ export async function POST(req: Request) {
   const denied = checkAccess(req);
   if (denied) return denied;
   try {
-    const { letra, estilo } = await req.json();
+    const { letra, estilo, book } = await req.json();
+    await requirePaid(book);
     if (!Array.isArray(letra) || letra.length < 4 || letra.length > 30) {
       return fail(new Error("Letra inválida."), 400);
     }
@@ -22,13 +24,14 @@ export async function POST(req: Request) {
     let res = await call(process.env.ELEVEN_MUSIC_MODEL || "music_v1");
     if (!res.ok && res.status < 500 && process.env.ELEVEN_MUSIC_MODEL) res = await call("music_v1");
     if (!res.ok) throw new Error(`Música falhou (${res.status}): ${(await res.text()).slice(0, 300)}`);
-    return withUsage(res.body, {
+    await saveAsset(book, "music.mp3", await res.arrayBuffer());
+    return jsonUsage({ ok: true }, {
       provider: "elevenlabs-music",
       model: process.env.ELEVEN_MUSIC_MODEL || "music_v1",
       requested_ms: 90000,
       prompt_chars: prompt.length,
       headers: billingHeaders(res),
-    }, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store", "x-prompt": encodeURIComponent(prompt).slice(0, 4000) } });
+    }, { prompt, letra, estilo });
   } catch (e) {
     return fail(e);
   }

@@ -3,12 +3,11 @@
 import { ArrowLeft, Check, Loader2, Minus, Plus, Timer, Trash2, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Phone } from "./Phone";
-import { Cinema } from "./Cinema";
 import { OtherField } from "./OtherField";
 import { GlassInput, GlassPill, GlassTextarea, SelectionGrid, SlideToConfirm, VoiceButton, delay } from "./ui";
 import { fileToResizedDataUrl } from "@/lib/image";
 import { CATEGORIES, LOVES, THEMES, TRAITS, getTheme } from "@/lib/themes";
-import { EMPTY_ANSWERS, type Answers, type Photo, type Result, type Story } from "@/lib/types";
+import { EMPTY_ANSWERS, type Answers, type Photo } from "@/lib/types";
 
 type StepId =
   | "code"
@@ -20,24 +19,12 @@ type StepId =
   | "memory"
   | "luna"
   | "photos"
-  | "generating"
-  | "result";
+  | "guardian"
+  | "sending";
 
-const FLOW: StepId[] = ["child", "family", "theme", "loves", "traits", "memory", "luna", "photos", "generating", "result"];
+const FLOW: StepId[] = ["child", "family", "theme", "loves", "traits", "memory", "luna", "photos", "guardian"];
 const MAX_PHOTOS = 10;
 const FALLBACK_QUESTION = "Qual é o apelido carinhoso ou a brincadeira favorita dela?";
-
-type Progress = { story: boolean; images: number; narration: boolean; music: boolean };
-
-// Consumo real que o servidor devolve em cada chamada (cabeçalho x-usage).
-function readUsage(r: Response): unknown {
-  try {
-    const h = r.headers.get("x-usage");
-    return h ? JSON.parse(h) : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 export function Wizard() {
   const [accessRequired, setAccessRequired] = useState<boolean | null>(null);
@@ -49,12 +36,10 @@ export function Wizard() {
   const [cat, setCat] = useState("");
   const [like, setLike] = useState("");
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState<Progress>({ story: false, images: 0, narration: false, music: false });
-  const [result, setResult] = useState<Result | null>(null);
-  const [fatal, setFatal] = useState("");
-  const started = useRef(false);
-  const followupUsage = useRef<unknown>(null);
-  const followupDetail = useRef<unknown>(null);
+  const [guardian, setGuardian] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [sendMsg, setSendMsg] = useState("");
+  const bookId = useRef<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const set = <K extends keyof Answers>(k: K, v: Answers[K]) => setA((p) => ({ ...p, [k]: v }));
@@ -95,6 +80,22 @@ export function Wizard() {
   const next = () => go(order[Math.min(order.length - 1, idx + 1)]);
   const back = () => go(order[Math.max(0, idx - 1)]);
 
+  const waDigits = () => whatsapp.replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
+  const maskWa = (v: string) => {
+    const d = v.replace(/\D/g, "").slice(0, 11);
+    if (d.length <= 2) return d;
+    if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+    if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+    return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  };
+  useEffect(() => {
+    try {
+      const c = JSON.parse(localStorage.getItem("lm_contact") || "null");
+      if (c?.name) setGuardian(c.name);
+      if (c?.whatsapp) setWhatsapp(maskWa(c.whatsapp));
+    } catch {}
+  }, []);
+
   /* ---------- validação por etapa ---------- */
   const validity: Record<StepId, string> = {
     code: access.trim() ? "" : "Digite o código de acesso.",
@@ -106,8 +107,8 @@ export function Wizard() {
     memory: "",
     luna: "",
     photos: !photos.length ? "Envie ao menos uma foto." : !a.consent ? "Marque o consentimento dos responsáveis." : "",
-    generating: "",
-    result: "",
+    guardian: guardian.trim().length < 2 ? "Informe o nome do responsável." : waDigits().length < 10 ? "Informe o WhatsApp com DDD." : "",
+    sending: "",
   };
   const blocked = () => setMsg(validity[step]);
   const canGo = !validity[step];
@@ -132,9 +133,7 @@ export function Wizard() {
     go("luna");
     try {
       const r = await fetch("/api/luna/followup", { method: "POST", headers: headers(), body: JSON.stringify({ answers: a }) });
-      followupUsage.current = readUsage(r);
       const d = await r.json();
-      followupDetail.current = d.debug ?? null;
       set("lunaQuestion", r.ok && d.pergunta ? d.pergunta : FALLBACK_QUESTION);
     } catch {
       set("lunaQuestion", FALLBACK_QUESTION);
@@ -159,180 +158,39 @@ export function Wizard() {
   };
 
   /* ---------- geração completa ---------- */
-  const generate = useCallback(async () => {
-    const usages: Record<string, unknown> = {};
-    const details: Record<string, unknown> = {};
-    const eleven = async () => {
-      try {
-        const r = await fetch("/api/usage/eleven", { headers: headers(), cache: "no-store" });
-        return r.ok ? await r.json() : null;
-      } catch {
-        return null;
-      }
-    };
-    const elevenBefore = await eleven();
-    const errors: string[] = [];
-    const t0 = Date.now();
-    const events: { step: string; ok: boolean; ms: number; error?: string; usage?: unknown; detail?: unknown }[] = [];
-    const ev = (step: string, ok: boolean, since: number, error?: string) =>
-      events.push({ step, ok, ms: Date.now() - since, error, usage: usages[step], detail: details[step] });
-    let orderId: string | null = null;
+  /* ---------- cria o livro, guarda as fotos e segue para o pagamento ---------- */
+  const submitBook = async () => {
+    setBusy(true);
+    setSendMsg("");
+    go("sending");
     try {
-      const r = await fetch("/api/orders/start", { method: "POST", headers: headers(), body: JSON.stringify({ answers: a, photoCount: photos.length }) });
-      if (r.ok) orderId = (await r.json()).id ?? null;
-    } catch {}
-    const finish = async (status: string, story: Story | null) => {
-      if (!orderId) return;
-      const elevenAfter = await eleven();
-      if (followupUsage.current) events.push({ step: "followup", ok: true, ms: 0, usage: followupUsage.current, detail: followupDetail.current });
-      try {
-        await fetch("/api/orders/finish", {
+      if (!bookId.current) {
+        const r = await fetch("/api/books/create", {
           method: "POST",
           headers: headers(),
-          body: JSON.stringify({ id: orderId, status, story, errors, events, totalMs: Date.now() - t0, usage: { eleven_before: elevenBefore, eleven_after: elevenAfter } }),
+          body: JSON.stringify({ answers: a, guardian: guardian.trim(), whatsapp: waDigits(), photoCount: photos.length }),
         });
-      } catch {}
-    };
-    const post = async (url: string, body: unknown, step?: string) => {
-      const r = await fetch(url, { method: "POST", headers: headers(), body: JSON.stringify(body) });
-      if (step) usages[step] = readUsage(r);
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}));
-        throw new Error(d?.error || `Erro ${r.status}`);
+        const d = await r.json();
+        if (!r.ok || !d.id) throw new Error(d.error || "Não consegui criar o pedido.");
+        bookId.current = d.id as string;
       }
-      return r;
-    };
-
-    try {
-      const tStory = Date.now();
-      const sr = await post("/api/luna/story", { answers: a, photoCount: photos.length }, "story");
-      const sj = (await sr.json()) as { story: Story; debug?: unknown };
-      const { story } = sj;
-      details.story = sj.debug;
-      ev("story", true, tStory);
-      setProgress((p) => ({ ...p, story: true }));
-
-      const images: (string | null)[] = new Array(photos.length).fill(null);
-
-      const imageJob = async () => {
-        let cursor = 0;
-        const worker = async () => {
-          while (cursor < photos.length) {
-            const i = cursor++;
-            const tImg = Date.now();
-            try {
-              const r = await post("/api/generate/image", {
-                photo: photos[i].dataUrl,
-                scene: story.cenas[i],
-                themeId: a.themeId,
-                customTheme: a.customTheme,
-                consent: a.consent,
-              }, `image_${i + 1}`);
-              const ij = await r.json();
-              images[i] = ij.image as string;
-              details[`image_${i + 1}`] = ij.debug;
-              ev(`image_${i + 1}`, true, tImg);
-            } catch (e) {
-              errors.push(`Imagem ${i + 1}: ${(e as Error).message}`);
-              ev(`image_${i + 1}`, false, tImg, (e as Error).message);
-            }
-            setProgress((p) => ({ ...p, images: p.images + 1 }));
-          }
-        };
-        await Promise.all([worker(), worker()]); // 2 imagens por vez
-      };
-
-      let narrTimes: Result["narrTimes"] = null;
-      let lyricStarts: number[] | null = null;
-      const b64ToUrl = (b64: string) => {
-        const bin = atob(b64);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        return URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
-      };
-
-      const narrationJob = async () => {
-        const t = Date.now();
-        try {
-          const r = await post("/api/generate/narration", { pages: story.paginas.map((p) => p.fala || p.texto) }, "narration");
-          const j = await r.json();
-          details.narration = j.debug;
-          narrTimes = j.pages;
-          const out = b64ToUrl(j.audio);
-          ev("narration", true, t);
-          setProgress((p) => ({ ...p, narration: true }));
-          return out;
-        } catch (e) {
-          errors.push(`Narração: ${(e as Error).message}`);
-          ev("narration", false, t, (e as Error).message);
-          setProgress((p) => ({ ...p, narration: true }));
-          return null;
-        }
-      };
-
-      const musicJob = async () => {
-        const t = Date.now();
-        try {
-          const r = await post("/api/generate/music", { letra: story.letra, estilo: story.estilo_musical }, "music");
-          const blob = await r.blob();
-          try {
-            details.music = { prompt: decodeURIComponent(r.headers.get("x-prompt") || ""), letra: story.letra, estilo: story.estilo_musical };
-          } catch {}
-          const out = URL.createObjectURL(blob);
-          // Tempo real dos versos: se falhar, o livro usa a estimativa.
-          try {
-            const fd = new FormData();
-            fd.append("audio", blob, "musica.mp3");
-            fd.append("letra", JSON.stringify(story.letra));
-            const sr = await fetch("/api/generate/lyrics-sync", { method: "POST", body: fd, headers: { "x-access-code": access } });
-            if (sr.ok) {
-              usages["lyrics_sync"] = readUsage(sr);
-              ev("lyrics_sync", true, t);
-              lyricStarts = (await sr.json()).starts;
-            }
-          } catch {
-            /* segue com a estimativa */
-          }
-          ev("music", true, t);
-          setProgress((p) => ({ ...p, music: true }));
-          return out;
-        } catch (e) {
-          errors.push(`Música: ${(e as Error).message}`);
-          ev("music", false, t, (e as Error).message);
-          setProgress((p) => ({ ...p, music: true }));
-          return null;
-        }
-      };
-
-      const [narrationUrl, musicUrl] = await Promise.all([narrationJob(), musicJob(), imageJob()]);
-
-      setResult({ story, images, narrationUrl, musicUrl, narrTimes, lyricStarts, errors, photoProblem: images.some((x) => !x) });
-      await finish(errors.length ? "partial" : "done", story);
-      go("result");
+      for (let i = 0; i < photos.length; i++) {
+        const blob = await (await fetch(photos[i].dataUrl)).blob();
+        const r = await fetch(`/api/books/asset?id=${bookId.current}&name=photo${i}.jpg`, {
+          method: "PUT",
+          headers: { "Content-Type": "image/jpeg", "x-access-code": access },
+          body: blob,
+        });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Não consegui guardar uma das fotos.");
+      }
+      try {
+        localStorage.setItem("lm_contact", JSON.stringify({ name: guardian.trim(), whatsapp: waDigits() }));
+      } catch {}
+      window.location.assign(`/livro/${bookId.current}`);
     } catch (e) {
-      ev("story", false, t0, (e as Error).message);
-      errors.push((e as Error).message);
-      await finish("failed", null);
-      setFatal((e as Error).message);
+      setSendMsg((e as Error).message);
+      setBusy(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [a, photos, headers]);
-
-  useEffect(() => {
-    if (step === "generating" && !started.current) {
-      started.current = true;
-      generate();
-    }
-  }, [step, generate]);
-
-  const restart = () => {
-    started.current = false;
-    setA(EMPTY_ANSWERS);
-    setPhotos([]);
-    setResult(null);
-    setFatal("");
-    setProgress({ story: false, images: 0, narration: false, music: false });
-    go(accessRequired ? "child" : "child");
   };
 
   /* ---------- cabeçalhos por etapa ---------- */
@@ -346,22 +204,19 @@ export function Wizard() {
     memory: { sub: "Opcional", title: "Uma memória ou frase que só vocês conhecem?" },
     luna: { sub: "Uma pergunta da Luna", title: busy ? "A Luna está pensando..." : a.lunaQuestion },
     photos: { sub: `Até ${MAX_PHOTOS} fotos`, title: "Envie as fotos para virar aventura" },
-    generating: { sub: "Aguarde um pouquinho", title: "A Luna está criando o seu livro" },
-    result: { sub: "Pronto!", title: a.childName ? `O livro de ${a.childName}` : "Seu livro" },
+    guardian: { sub: "Quase lá", title: "Quem é o responsável pelo pedido?" },
+    sending: { sub: "Só um instante", title: "Guardando as fotos com segurança" },
   };
 
-  const showSlider = !["generating", "result"].includes(step);
+  const showSlider = step !== "sending";
   const sliderAction = () => {
     if (!canGo) return blocked();
     if (step === "code") return void confirmCode();
     if (step === "memory") return void askLuna();
-    if (step === "photos") {
-      go("generating");
-      return;
-    }
+    if (step === "guardian") return void submitBook();
     next();
   };
-  const sliderLabel = step === "photos" ? "Criar o livro" : step === "code" ? "Entrar" : "Continuar";
+  const sliderLabel = step === "guardian" ? "Ir para o pagamento" : step === "code" ? "Entrar" : "Continuar";
 
   /* ---------- corpo de cada etapa ---------- */
   const body = (() => {
@@ -518,39 +373,39 @@ export function Wizard() {
             </label>
           </div>
         );
-      case "generating":
+      case "guardian":
         return (
-          <div className="space-y-3">
-            {[
-              { ok: progress.story, label: "Roteiro e letra da música" },
-              { ok: progress.images >= photos.length && photos.length > 0, label: `Imagens do tema (${Math.min(progress.images, photos.length)}/${photos.length})` },
-              { ok: progress.narration, label: "Narração da história" },
-              { ok: progress.music, label: "Música de aniversário" },
-            ].map((it, i) => (
-              <div key={it.label} className="liquid-glass fade-up flex items-center gap-3 rounded-[24px] px-4 py-3.5" style={delay(0.3 + i * 0.1)}>
-                <span className="relative z-10 flex h-6 w-6 items-center justify-center">
-                  {it.ok ? <Check size={18} /> : <Loader2 size={18} className="animate-spin text-white/70" />}
-                </span>
-                <span className="relative z-10 text-sm">{it.label}</span>
-              </div>
-            ))}
-            <p className="px-2 pt-2 text-xs text-white/60">Pode levar alguns minutos. Mantenha esta tela aberta.</p>
-            {fatal ? (
-              <div className="space-y-3">
-                <p className="rounded-2xl bg-red-500/30 p-3 text-xs">{fatal}</p>
-                <button type="button" onClick={() => { started.current = false; setFatal(""); setProgress({ story: false, images: 0, narration: false, music: false }); generate(); }} className="liquid-glass rounded-full px-5 py-2.5 text-sm">
-                  Tentar de novo
-                </button>
-              </div>
-            ) : null}
+          <div className="space-y-4">
+            <div className="fade-up" style={delay(0.4)}>
+              <GlassInput label="Seu nome" placeholder="Nome do responsável" value={guardian} maxLength={80} onChange={(e) => setGuardian(e.target.value)} />
+            </div>
+            <div className="fade-up" style={delay(0.48)}>
+              <GlassInput label="WhatsApp com DDD" placeholder="(11) 91234-5678" inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(maskWa(e.target.value))} />
+            </div>
+            <p className="fade-up px-1 text-[11px] leading-snug text-white/60" style={delay(0.56)}>
+              Usamos seu nome e WhatsApp só para identificar o pedido: se a página fechar ou o celular desligar, é só digitar de novo para voltar ao seu livro.
+            </p>
           </div>
         );
-      case "result":
-        return result ? <Cinema result={result} answers={a} onRestart={restart} headers={headers()} /> : null;
+      case "sending":
+        return (
+          <div className="space-y-3">
+            {sendMsg ? (
+              <>
+                <p className="rounded-2xl bg-red-500/30 p-3 text-xs">{sendMsg}</p>
+                <button type="button" onClick={submitBook} className="liquid-glass rounded-full px-5 py-2.5 text-sm">
+                  <span className="relative z-10">Tentar de novo</span>
+                </button>
+              </>
+            ) : (
+              <div className="flex justify-center pt-6"><Loader2 className="animate-spin text-white/70" /></div>
+            )}
+          </div>
+        );
     }
   })();
 
-  const fullBody = step === "result";
+  const fullBody = false;
 
   return (
     <Phone tint={theme ? theme.colors : undefined}>
