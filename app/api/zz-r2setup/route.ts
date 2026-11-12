@@ -4,8 +4,8 @@ import { r2Api, r2Auth } from "@/lib/r2";
 export const runtime = "nodejs";
 
 // TEMPORÁRIA: troca a regra de expiração do bucket (livros 90 dias, renders antigos 1 dia). Removida logo depois.
-export async function POST(req: Request) {
-  if (req.headers.get("x-setup") !== need("PAY_SECRET")) return new Response("no", { status: 401 });
+export async function GET(req: Request) {
+  if (new URL(req.url).searchParams.get("k") !== need("PAY_SECRET")) return new Response("no", { status: 401 });
   const rule = (id: string, prefix: string, maxAge: number) => ({ id, enabled: true, conditions: { prefix }, deleteObjectsTransition: { condition: { type: "Age", maxAge } } });
   const res = await fetch(`${r2Api()}/lifecycle`, {
     method: "PUT",
