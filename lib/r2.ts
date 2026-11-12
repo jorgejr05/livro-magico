@@ -17,4 +17,8 @@ export async function r2Get(key: string): Promise<Response | null> {
   return res;
 }
 
+export async function r2Delete(key: string): Promise<void> {
+  await fetch(obj(key), { method: "DELETE", headers: auth() }).catch(() => {});
+}
+
 export { api as r2Api, auth as r2Auth };

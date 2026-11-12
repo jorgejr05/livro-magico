@@ -1,5 +1,6 @@
 import { checkAccess, fail } from "@/lib/server";
 import { rpc } from "@/lib/supabase";
+import { r2Delete } from "@/lib/r2";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -24,6 +25,8 @@ export async function POST(req: Request) {
         usage: usage && typeof usage === "object" ? usage : null,
       },
     });
+    // Pronto: apaga as fotos originais das crianças (só serviam de referência para gerar as imagens).
+    if (status === "done" || status === "partial") for (let i = 0; i < 10; i++) await r2Delete(`books/${id}/photo${i}.jpg`);
     return Response.json({ ok: true });
   } catch (e) {
     return fail(e);
